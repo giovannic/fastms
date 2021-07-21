@@ -1,3 +1,5 @@
+from rpy2.robjects.packages import importr
+import rpy2.robjects as ro
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
@@ -17,63 +19,61 @@ np.random.seed(seed)
 
 # take I/O from cmdline
 parser = argparse.ArgumentParser(description='Do some magic')
-parser.add_argument('msdir', type=str, default='./msdir')
+parser.add_argument('gts', type=str, default='./gts')
+parser.add_argument('n', type=int)
 parser.add_argument('outdir', type=str, default='./')
-parser.add_argument('n_batches', type=int)
 args = parser.parse_args()
-msdir = args.msdir
+gts = args.gts
+n = args.n
 outdir = args.outdir
-n_batches = args.n_batches
 
-# Get our training data
-realisation_pattern = re.compile(r'realisation_(\d+)_batch_\d+\.csv$')
-p_space_pattern = re.compile(f'p_space_(\d+).csv$')
+# Create some simulations data
+print('generating simulations')
 
-def get_node(pattern, path):
-    return int(pattern.search(path).group(1))
+det = importr('ICDMM')
+base = importr('base')
+data = base.readRDS(gts)
 
-def label_df(df, node):
-    df.insert(0, 'node', node)
-    return df
-
-def label_pspace(df, node):
-    df = label_df(df, node)
-    df['p_row'] = df.index + 1
-    return df
-
-print('reading in data from', msdir)
-
-realisations = pd.concat([
-    label_df(
-        pd.read_csv(path),
-        get_node(realisation_pattern, path)
+def get_run(Q0, eir, seasonality):
+    return det.run_model(
+        ssa0 = seasonality[0],
+        ssa1 = seasonality[1],
+        ssa2 = seasonality[2],
+        ssa3 = seasonality[3],
+        ssb1 = seasonality[4],
+        ssb2 = seasonality[5],
+        ssb3 = seasonality[6],
+        eta  = 1 / (21 * 365),
+        Q0   = Q0,
+        time = sim_length,
+        init_EIR = eir
     )
-    for path in glob.glob(
-        os.path.join(
-            msdir,
-            'tp_det_realisations',
-            'realisation_*.csv'
-        )
-    )[:n_batches]
-]).groupby(['node', 'p_row']).prev.apply(np.array).reset_index()
 
-p_space = pd.concat([
-    label_pspace(pd.read_csv(path), get_node(p_space_pattern, path))
-    for path in glob.glob(os.path.join(msdir, 'tp_pspace', 'p_space_*.csv'))
-])
+seasonality = data[10]
+n_locations = len(seasonality)
+seasons = [
+    seasonality[i].rx[[
+        'seasonal_a0'
+        'seasonal_a1',
+        'seasonal_a2',
+        'seasonal_a3',
+        'seasonal_b1',
+        'seasonal_b2',
+        'seasonal_b3'
+    ]]
+    for i in np.random.randint(0, n_locations, n)
+]
 
-dataset = realisations.merge(
-    p_space,
-    on=['node', 'p_row']
-)
-
-print('done')
+def run_row(row):
+    return get_run(*row)
 
 idx_train, idx_test = train_test_split(
     np.arange(len(dataset)),
     test_size=0.2,
     random_state=seed
 )
+
+print('done')
 
 print('doing rainfall')
 
