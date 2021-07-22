@@ -1,16 +1,14 @@
-from rpy2.robjects.packages import importr
-import rpy2.robjects as ro
+import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
-import pandas as pd
-import numpy as np
+from tensorflow.keras.wrappers.scikit_learn import KerasRegressor
+from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import GridSearchCV
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 import glob
-import re
-import os
-import math
+import json
 import argparse
 from pickle import dump
 
@@ -19,76 +17,16 @@ np.random.seed(seed)
 
 # take I/O from cmdline
 parser = argparse.ArgumentParser(description='Do some magic')
-parser.add_argument('gts', type=str, default='./gts')
-parser.add_argument('n', type=int)
+parser.add_argument('indir', type=str, default='./tp_ibm_realisations')
 parser.add_argument('outdir', type=str, default='./')
 args = parser.parse_args()
-gts = args.gts
-n = args.n
+indir = args.indir
 outdir = args.outdir
 
-# Create some simulations data
-print('generating simulations')
+print('preprocessing')
 
-det = importr('ICDMM')
-base = importr('base')
-data = base.readRDS(gts)
-
-def get_run(Q0, eir, seasonality):
-    return det.run_model(
-        ssa0 = seasonality[0],
-        ssa1 = seasonality[1],
-        ssa2 = seasonality[2],
-        ssa3 = seasonality[3],
-        ssb1 = seasonality[4],
-        ssb2 = seasonality[5],
-        ssb3 = seasonality[6],
-        eta  = 1 / (21 * 365),
-        Q0   = Q0,
-        time = sim_length,
-        init_EIR = eir
-    )
-
-seasonality = data[10]
-n_locations = len(seasonality)
-seasons = [
-    seasonality[i].rx[[
-        'seasonal_a0'
-        'seasonal_a1',
-        'seasonal_a2',
-        'seasonal_a3',
-        'seasonal_b1',
-        'seasonal_b2',
-        'seasonal_b3'
-    ]]
-    for i in np.random.randint(0, n_locations, n)
-]
-
-def run_row(row):
-    return get_run(*row)
-
-idx_train, idx_test = train_test_split(
-    np.arange(len(dataset)),
-    test_size=0.2,
-    random_state=seed
-)
-
-print('done')
-
-print('doing rainfall')
-
-def to_rainfall(s):
-    g = np.array(s[1:6:2])
-    h = np.array(s[2:7:2])
-    r = np.array([
-        s[0] + sum([
-            g[i] * np.cos(2 * math.pi * t * (i + 1) / 365) +
-            h[i] * np.sin(2 * math.pi * t * (i + 1) / 365)
-            for i in range(len(g))
-        ])
-        for t in range(365)
-    ])
-    return r / np.mean(r)
+eir = np.stack([entry['eir'] for node in dataset for entry in node])
+actual_eir = np.mean(eir[:,-365:], axis=1)
 
 s_inputs = [
     'seasonal_a0',
@@ -97,93 +35,110 @@ s_inputs = [
     'seasonal_a3', 'seasonal_b3'
 ]
 
-rainfall_scaler = StandardScaler()
-rainfall = np.stack(dataset[s_inputs].apply(to_rainfall, axis = 1))
-rainfall = rainfall_scaler.fit_transform(rainfall)
+inputs = ['average_age', 'Q0'] + s_inputs
 
-print('rainfall done')
+X = np.concatenate([
+    np.stack([
+        np.array([entry[i] for i in inputs])
+        for node in dataset
+        for entry in node
+    ]),
+    actual_eir[:, None]
+], axis = 1)
+    
 
-print('doing y')
+y = np.stack([
+    entry['prev']
+    for node in dataset
+    for entry in node
+])[:,-365:]
 
-n_timesteps = 365
+idx_train, idx_test = train_test_split(
+    np.arange(y.shape[0]),
+    test_size=0.2,
+    random_state=seed
+)
+
+scaler = StandardScaler()
+X_train = scaler.fit_transform(X[idx_train])
+X_test = scaler.transform(X[idx_test])
 y_scaler = StandardScaler()
-y_train = y_scaler.fit_transform(np.stack(dataset.iloc[idx_train].prev))
-y_train = y_train[:,:n_timesteps]
-y_train_batch = y_train.T.flatten()
+y_train = y_scaler.fit_transform(y[idx_train])
+y_test = y[idx_test]
 
-print('y done')
+print('hyperparameters')
 
-print('batching sequences')
+n_features = X_train.shape[1]
+n_output = y_train.shape[1]
 
-n_in = 7
-default = -200
-
-history = np.roll(y_train[:,:,None], 1, 1)
-history[:,0,:] = default
-x_train_sequence = np.concatenate([rainfall[idx_train,:,None], history], 2)
-
-x_seq_batch = np.concatenate(
-    [
-        np.concatenate(
-            [
-                x_train_sequence[:, u, None] if u >= 0 else np.full(
-                    (x_train_sequence.shape[0], 1, x_train_sequence.shape[2]),
-                    default
-                )
-                for u in t - np.arange(n_in)
-            ],
-            1
-        )
-        for t in range(x_train_sequence.shape[1])
-    ],
-    0
-)
-
-print('batching sequences done')
-
-print('putting it altogether')
-
-params = ['average_age', 'total_M', 'Q0']
-# preprocess data
-param_scaler = StandardScaler()
-x_params = param_scaler.fit_transform(dataset.iloc[idx_train][params])
-
-x_params_batch = np.repeat(
-    np.repeat(x_params[:,None,:], 365, 0),
-    n_in,
-    1
-)
-
-x_train_batch = np.concatenate([x_seq_batch, x_params_batch], 2)
-
-print('done')
-
-print('training LSTM')
-
-def create_sequence_model(optimiser='adam', n_layer=[5, 1], dropout=.2, loss='mse', stateful=False):
+def create_model(optimiser='adam', n_layer=[n_features, n_output], dropout=.0, loss='mse'):
     model = keras.Sequential()
-    model.add(layers.Masking(mask_value=default))
-    model.add(layers.LSTM(n_layer[0], dropout=dropout))
-    model.add(layers.Dense(n_layer[1]))
+    model.add(layers.Dense(n_layer[0], activation='relu'))
+    model.add(layers.Dropout(dropout))
+    model.add(layers.Dense(n_layer[1], activation='tanh'))
+    model.add(layers.Dropout(dropout))
+    model.add(layers.Dense(n_output))
     model.compile(loss=loss, optimizer=optimiser)
     return model
 
-seq_model = create_sequence_model(dropout=0., stateful=True)
-for epoch in range(10):
-    print('epoch', epoch)
-    for X, y in zip(np.split(x_train_batch, len(idx_train)), np.split(y_train_batch, len(idx_train))):
-        seq_model.fit(X, y, epochs=1, batch_size=100, shuffle=False, verbose=False)
-        seq_model.reset_states()
+losses = ['mse', 'log_cosh']
+batches = [50, 100]
+dropout = [0., .1]
+epochs = [100, 1000]
 
+param_grid = dict(
+    optimiser=optimisers,
+    epochs=epochs,
+    loss=losses,
+    batch_size=batches,
+    dropout=dropout
+)
+
+model = KerasRegressor(build_fn=create_model, verbose=0)
+grid = GridSearchCV(estimator=model, param_grid=param_grid)
+grid_result = grid.fit(X_train, y_train)
+# summarize results
+print("Best: %f using %s" % (grid_result.best_score_, grid_result.best_params_))
+means = grid_result.cv_results_['mean_test_score']
+stds = grid_result.cv_results_['std_test_score']
+params = grid_result.cv_results_['params']
+for mean, stdev, param in zip(means, stds, params):
+    print("%f (%f) with: %r" % (mean, stdev, param))
+
+print('convergence stats')
+
+def convergence_stats(params, n):
+    n = int(n)
+    model = KerasRegressor(
+        build_fn=create_model,
+        **params
+    )
+    model.fit(X_train[:n], y_train[:n], verbose=False)
+    error = mean_squared_error(
+        y_scaler.inverse_transform(model.predict(X_test)),
+        y_test
+    )
+    return {'samples': n, 'mse': error}
+    
+pd.DataFrame(
+    data=[
+        convergence_stats(grid_result.best_params_, n)
+        for n in np.linspace(10, X_train.shape[0], 20)
+    ]
+).to_csv(os.path.join(outdir, 'convergence.csv'), index=False)
+
+print('training best model')
+model = KerasRegressor(
+    build_fn=create_model,
+    **grid_result.best_params_
+)
+model.fit(X, y, verbose=False)
 
 print('saving outputs')
-seq_model.save(os.path.join(outdir, 'seq'))
-with open(os.path.join(outdir, 'rainfall_scaler.pkl'), 'wb') as f:
-    dump(rainfall_scaler, f)
+model.model.save(os.path.join(outdir, 'base'))
 with open(os.path.join(outdir, 'y_scaler.pkl'), 'wb') as f:
     dump(y_scaler, f)
-with open(os.path.join(outdir, 'param_scaler.pkl'), 'wb') as f:
-    dump(param_scaler, f)
-dataset.iloc[idx_test][['node', 'p_row']].to_csv(os.path.join(outdir, 'test.csv'), index=False)
+with open(os.path.join(outdir, 'scaler.pkl'), 'wb') as f:
+    dump(scaler, f)
 
 print('done')
