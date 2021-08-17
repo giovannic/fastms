@@ -2,16 +2,24 @@ import glob
 import json
 import os
 import math
+import multiprocessing
 from tensorflow.data import Dataset
 from tensorflow import TensorSpec, float32
 from sklearn.model_selection import train_test_split
+import numpy as np
 from .preprocessing import format_runs, create_scaler
+import logging
 
 ENTRIES_PER_PATH = 10
 
 def load_json(path):
     with open(path, 'r') as f:
         return json.load(f)
+
+def chunks(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
 
 def create_sample_generator(*args):
     return SampleGenerator(*args)
@@ -42,10 +50,18 @@ class SampleGenerator(object):
 
         self.seed = seed
 
-        # TODO: multiprocessing
-        X, y = format_runs(
-            [run for runs in map(load_json, self.paths) for run in runs]
-        )
+        logging.info("reading in data")
+        runs = [run for runs in map(load_json, self.paths) for run in runs]
+
+        logging.info("formatting")
+        ncpus = multiprocessing.cpu_count()
+        n_chunks = len(runs) // ncpus
+        with multiprocessing.Pool(ncpus) as p:
+            dataset = p.map(format_runs, chunks(runs, n_chunks))
+
+        X, y = zip(*dataset)
+        X = np.concatenate(X)
+        y = np.concatenate(y)
 
         X_train, X_test, y_train, y_test = train_test_split(
             X, y,
@@ -58,6 +74,7 @@ class SampleGenerator(object):
         self.X_test = self.X_scaler.transform(X_test)
         self.y_train = self.y_scaler.transform(y_train)
         self.y_test = self.y_scaler.transform(y_test)
+        logging.info("data processed")
 
     def train_generator(self, batch_size):
         return Dataset.from_tensor_slices((self.X_train, self.y_train)).shuffle(

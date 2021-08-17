@@ -21,7 +21,8 @@ args = parser.parse_args()
 numeric_level = getattr(logging, args.log.upper(), None)
 if not isinstance(numeric_level, int):
     raise ValueError('Invalid log level: %s' % loglevel)
-logging.basicConfig(level=numeric_level)
+FORMAT = '%(levelname)s: %(asctime)-15s %(message)s'
+logging.basicConfig(level=numeric_level, format=FORMAT)
 
 logging.info(f"seed set at {args.seed}")
 
