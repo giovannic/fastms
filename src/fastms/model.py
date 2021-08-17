@@ -11,6 +11,6 @@ def create_model(optimiser, n_layer, dropout, loss, **kwargs):
     model.compile(loss=loss, optimizer=optimiser)
     return model
 
-def train_model(model, gen, seed):
+def train_model(model, gen, epochs, seed):
     set_seed(seed)
-    model.fit(gen)
+    model.fit(gen, epochs=epochs)

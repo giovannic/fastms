@@ -1,3 +1,4 @@
+import os.path
 import argparse
 import logging
 from .loading import create_sample_generator
@@ -12,8 +13,15 @@ parser.add_argument('n', type=int, default=100)
 parser.add_argument('block_size', type=int, default=20)
 parser.add_argument('split', type=float, default=.8)
 parser.add_argument('outdir', type=str, default='./')
+parser.add_argument('epochs', type=int, default=100)
 parser.add_argument('seed', type=int, default=42)
+parser.add_argument('--log', type=str, default='WARNING')
 args = parser.parse_args()
+
+numeric_level = getattr(logging, args.log.upper(), None)
+if not isinstance(numeric_level, int):
+    raise ValueError('Invalid log level: %s' % loglevel)
+logging.basicConfig(level=numeric_level)
 
 logging.info(f"seed set at {args.seed}")
 
@@ -22,7 +30,7 @@ samples = create_sample_generator(
     args.indir,
     args.n,
     args.split,
-    args.block_size
+    args.seed
 )
 
 # logging.info("hyperparameter optimisation")
@@ -40,7 +48,12 @@ params = {
 }
 logging.info(f"evaluating params {params}")
 model = create_model(**params)
-train_model(model, samples.train_generator(params['batch_size']), args.seed)
+train_model(
+    model,
+    samples.train_generator(params['batch_size']),
+    args.epochs,
+    args.seed
+)
 test_model(model, samples.test_generator(params['batch_size']))
 
 # logging.info("calculating convergence stats")

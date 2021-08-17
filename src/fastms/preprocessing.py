@@ -1,28 +1,92 @@
+import math
 import numpy as np
 from sklearn.base import TransformerMixin
 from sklearn.preprocessing import StandardScaler
 
+WARMUP = 5
+PERIOD = 39
+INPUTS = ['average_age', 'Q0']
+SEASONAL_INPUTS = [
+    'seasonal_a0',
+    'seasonal_a1', 'seasonal_b1',
+    'seasonal_a2', 'seasonal_b2',
+    'seasonal_a3', 'seasonal_b3'
+]
+TIMED_INPUTS = ['llin', 'irs', 'smc', 'rtss', 'tx', 'prop_act']
+# OUTPUTS = ['inc', 'prev', 'eir']
+OUTPUTS = ['prev']
+
+def to_rainfall(s):
+    g = np.array(s[1:6:2])
+    h = np.array(s[2:7:2])
+    return np.array([
+        s[0] + sum([
+            g[i] * np.cos(2 * math.pi * t * (i + 1) / 365) +
+            h[i] * np.sin(2 * math.pi * t * (i + 1) / 365)
+            for i in range(len(g))
+        ])
+        for t in range(365)
+    ])
+
 def format_runs(runs):
-    eir = np.stack([entry['eir'] for entry in runs])
-    actual_eir = np.mean(eir[:,-365:], axis=1)
 
-    s_inputs = [
-        'seasonal_a0',
-        'seasonal_a1', 'seasonal_b1',
-        'seasonal_a2', 'seasonal_b2',
-        'seasonal_a3', 'seasonal_b3'
-    ]
+    rainfall = np.stack([
+        to_rainfall(np.array([entry[i] for i in SEASONAL_INPUTS]))
+        for entry in runs
+    ])
 
-    inputs = ['average_age', 'Q0'] + s_inputs
 
-    X = np.concatenate([
-        np.stack([np.array([entry[i] for i in inputs]) for entry in runs ]),
-        actual_eir[:, None]
-    ], axis = 1)
-        
-    y = np.stack([entry['prev'] for entry in runs])[:,-365:]
+    # Time invariant parameters
+    actual_eir = np.mean(
+        np.stack([entry['eir'][4*365:5*365] for entry in runs]),
+        axis=1
+    )
+    X = np.concatenate(
+        [
+            np.stack([
+                np.array([entry[i] for i in INPUTS])
+                for entry in runs
+            ]),
+            rainfall,
+            actual_eir[:, None]
+        ],
+        axis=1
+    )
 
-    return (X, y)
+    # Time varying parameters
+    X = np.concatenate(
+        [
+            np.repeat(X[:, None, :], PERIOD, axis=1),
+            np.array(
+                [
+                    [
+                        entry[i] if i != 'rtss' else [0] * 19 + entry[i]
+                        for i in TIMED_INPUTS
+                    ]
+                    for entry in runs
+                ]
+            ).swapaxes(1, 2)
+        ],
+        axis = 2
+    )
+
+    # Outputs
+    y = np.stack(
+        [
+            [
+                [v if v != 'NA' else 0 for v in entry[o][WARMUP*365:]]
+                for o in OUTPUTS
+            ]
+            for entry in runs
+        ]
+    ).swapaxes(1, 2)
+
+    # combine outputs into (samples, timesteps, (len(outputs) * year))
+    y_yearly = np.stack(
+        np.split(y, PERIOD, axis=1)
+    ).transpose((1, 0, 2, 3)).reshape((X.shape[0], PERIOD, -1))
+
+    return (X, y_yearly)
 
 def create_scaler(data):
     scaler = NDStandardScaler()
