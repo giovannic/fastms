@@ -1,5 +1,5 @@
 from tensorflow.random import set_seed
-from tensorflow import keras
+from tensorflow import keras, make_ndarray
 from tensorflow.keras import layers
 from tensorflow.keras.wrappers.scikit_learn import KerasRegressor
 
@@ -14,3 +14,7 @@ def create_model(optimiser, n_layer, dropout, loss, **kwargs):
 def train_model(model, gen, epochs, seed):
     set_seed(seed)
     model.fit(gen, epochs=epochs)
+
+def model_predict(model, gen, scaler):
+    predictions = model.predict(gen)
+    return scaler.inverse_transform(predictions).reshape(predictions.shape[0], -1)

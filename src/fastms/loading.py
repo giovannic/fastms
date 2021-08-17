@@ -4,7 +4,6 @@ import os
 import math
 import multiprocessing
 from tensorflow.data import Dataset
-from tensorflow import TensorSpec, float32
 from sklearn.model_selection import train_test_split
 import numpy as np
 from .preprocessing import format_runs, create_scaler
@@ -21,12 +20,46 @@ def chunks(lst, n):
     for i in range(0, len(lst), n):
         yield lst[i:i + n]
 
-def create_sample_generator(*args):
-    return SampleGenerator(*args)
+def load_samples(indir, start, end):
+    paths = sorted(
+        glob.glob(os.path.join(indir, 'realisation_*.json'))
+    )
+    start_path = start // ENTRIES_PER_PATH
+    if end == -1:
+        end_path = len(paths)
+    else:
+        end_path = end // ENTRIES_PER_PATH + 1
+    paths = paths[start_path:end_path]
 
-class SampleGenerator(object):
+    logging.info("reading in data")
+    runs = [run for runs in map(load_json, paths) for run in runs]
 
-    paths = list()
+    logging.info("formatting")
+    ncpus = multiprocessing.cpu_count()
+    n_chunks = len(runs) // ncpus
+    with multiprocessing.Pool(ncpus) as p:
+        dataset = p.map(format_runs, chunks(runs, n_chunks))
+
+    X, y = zip(*dataset)
+    X = np.concatenate(X)
+    y = np.concatenate(y)
+    start_index = start % ENTRIES_PER_PATH
+
+    if end == -1:
+        end_index = X.shape[0]
+    else:
+        end_index = end_path * ENTRIES_PER_PATH + end % ENTRIES_PER_PATH
+
+    return X[start_index:end_index], y[start_index:end_index]
+
+def create_training_generator(*args):
+    return TrainingGenerator(*args)
+
+def create_evaluating_generator(*args):
+    return EvaluatingGenerator(*args)
+
+class TrainingGenerator(object):
+
     split = .8
     X_scaler = None
     y_scaler = None
@@ -38,30 +71,8 @@ class SampleGenerator(object):
         -- split the test train split
         -- seed for the sample allocation
         """
-        if n == -1:
-            self.paths = sorted(
-                glob.glob(os.path.join(indir, 'realisation_*.json'))
-            )
-        else:
-            n_paths = n // ENTRIES_PER_PATH + 1
-            self.paths = sorted(
-                glob.glob(os.path.join(indir, 'realisation_*.json'))
-            )[:n_paths]
-
+        X, y = load_samples(indir, 0, n)
         self.seed = seed
-
-        logging.info("reading in data")
-        runs = [run for runs in map(load_json, self.paths) for run in runs]
-
-        logging.info("formatting")
-        ncpus = multiprocessing.cpu_count()
-        n_chunks = len(runs) // ncpus
-        with multiprocessing.Pool(ncpus) as p:
-            dataset = p.map(format_runs, chunks(runs, n_chunks))
-
-        X, y = zip(*dataset)
-        X = np.concatenate(X)
-        y = np.concatenate(y)
 
         X_train, X_test, y_train, y_test = train_test_split(
             X, y,
@@ -90,121 +101,14 @@ class SampleGenerator(object):
             reshuffle_each_iteration=True
         ).batch(batch_size)
 
-class LazySampleGenerator(object):
+class EvaluatingGenerator(object):
 
-    paths = list()
-    split = .8
-    X_scaler = None
-    y_scaler = None
+    def __init__(self, indir, n, split, seed, X_scaler):
+        X, self.y = load_samples(indir, math.ceil(n * split), n)
+        self.X = X_scaler.transform(X)
 
-    def __init__(self, indir, n, split, block_size):
-        """
-        -- indir the directory to scan for samples
-        -- n the total number of samples to generate
-        -- split the test train split
-        -- block_size the number of samples to read at once
-        """
-        n_paths = n // ENTRIES_PER_PATH + 1
-        self.paths = sorted(
-            glob.glob(os.path.join(indir, 'realisation_*.json'))
-        )[:n_paths]
-        self.n = n
-        self.split = split
-        self.block_size = block_size
-        self.block_stride = block_size // ENTRIES_PER_PATH + 1
+    def evaluating_generator(self, batch_size=100):
+        return Dataset.from_tensor_slices(self.X).batch(batch_size)
 
-    def _load_block_from(self, i):
-        return (
-            entry
-            for entry in load_json(paths[j])
-            for j in range(i, math.min(len(paths), i + self.block_stride))
-        )
-
-    def _load_batch_from(self, i, batch_size):
-        return [
-            entry
-            for j in range(i, i + batch_size, self.block_stride)
-            for block in self._load_block_from(j)
-            for entry in block
-        ]
-
-    def train_generator(self, batch_size):
-        def generator():
-            generated = 0
-            to_generate = math.floor(self.split * self.n)
-
-            while generated < to_generate:
-                i = generated // ENTRIES_PER_PATH
-
-                # Load a block
-                runs = self._load_batch_from(i, batch_size)
-                    
-                # Format the runs as arrays
-                X, y = format_runs(runs)
-
-                # Truncate if we've generated too much
-                if generated + X.shape[0] > to_generate:
-                    X = X[:to_generate - generated]
-                    y = y[:to_generate - generated]
-
-                # Create scalers if we don't have any
-                if self.X_scaler is None:
-                    self.X_scaler = create_scaler(X)
-                if self.y_scaler is None:
-                    self.y_scaler = create_scaler(y)
-
-                # Scale 
-                X = self.X_scaler.transform(X)
-                y = self.y_scaler.transform(y)
-                generated = generated + X.shape[0]
-
-                yield (X, y)
-
-        return Dataset.from_generator(
-            generator,
-            output_signature = (
-                TensorSpec(shape=(), dtype=float32), #TODO: shape
-                TensorSpec(shape=(), dtype=float32)
-            )
-        )
-
-    def test_generator(self, batch_size):
-
-        def generator():
-            generated = math.floor(self.split * self.n)
-            to_generate = self.n - generated
-            while generated < to_generate:
-                # find out where we left off
-                i = generated // ENTRIES_PER_PATH
-
-                # Load a block
-                runs = self._load_batch_from(i, batch_size)
-
-                # Format the runs as arrays
-                X, y = format_runs(runs)
-
-                # Truncate any training data
-                if generated % ENTRIES_PER_PATH > 0:
-                    X = X[generated % ENTRIES_PER_PATH:]
-                    y = y[generated % ENTRIES_PER_PATH:]
-
-                # Create scalers if we don't have any
-                if self.X_scaler is None:
-                    self.X_scaler = create_scaler(X)
-                if self.y_scaler is None:
-                    self.y_scaler = create_scaler(y)
-
-                # Scale 
-                X = self.X_scaler.transform(X)
-                y = self.y_scaler.transform(y)
-                generated = generated + X.shape[0]
-
-                yield (X, y)
-
-        return Dataset.from_generator(
-            generator,
-            output_signature = (
-                TensorSpec(shape=(), dtype=float32),
-                TensorSpec(shape=(), dtype=float32)
-            )
-        )
+    def truth(self):
+        return self.y.reshape(self.y.shape[0], -1)
