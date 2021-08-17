@@ -3,7 +3,7 @@ import pandas as pd
 from tensorflow.keras.wrappers.scikit_learn import KerasRegressor
 from sklearn.metrics import mean_squared_error
 
-def convergence(params, n, X_train, y_train):
+def convergence(train_generator):
     n = int(n)
     model = KerasRegressor(
         build_fn=create_model,
@@ -23,3 +23,7 @@ def convergence_stats(params, X_train, y_train):
             for n in np.linspace(10, X_train.shape[0], 20)
         ]
     )
+
+# TODO does this take into account scaling?
+def test_model(model, gen):
+    print(model.evaluate(gen))
