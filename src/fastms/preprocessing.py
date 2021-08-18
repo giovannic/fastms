@@ -87,6 +87,12 @@ def format_runs(runs):
 
     return (X, y_yearly)
 
+def split_y(y):
+    return dict(zip(
+        OUTPUTS,
+        map(lambda a: a.tolist(), np.split(y, len(OUTPUTS)))
+    ))
+
 def create_scaler(data):
     scaler = NDStandardScaler()
     scaler.fit(data)
