@@ -1,10 +1,11 @@
+from .preprocessing import N_FEATURES, N_OUTPUTS
 from sklearn.model_selection import GridSearchCV
 
 DEFAULT_PARAMS = {
     'optimiser': 'adam',
     'n_layer': [
-        365 + 5, # n_features
-        365      # n_outputs
+        N_FEATURES,
+        N_OUTPUTS
     ],
     'dropout': .1,
     'loss': 'log_cosh',
@@ -12,10 +13,11 @@ DEFAULT_PARAMS = {
 }
 
 def hyperparameters(model):
+    optimisers = ['adam', 'rmsprop']
     losses = ['mse', 'log_cosh']
     batches = [50, 100]
     dropout = [0., .1]
-    epochs = [100, 1000]
+    epochs = [100]
 
     param_grid = dict(
         optimiser=optimisers,

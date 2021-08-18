@@ -6,6 +6,7 @@ from .loading import create_evaluating_generator
 from .export import load_scaler
 from .log import setup_log, logging
 from .model import model_predict
+from .preprocessing import split_y
 
 # take I/O from cmdline
 parser = argparse.ArgumentParser(description='Show some magic')
@@ -20,7 +21,7 @@ args = parser.parse_args()
 
 setup_log(args.log)
 
-def run():
+def predict():
     logging.info(f"seed set at {args.seed}")
 
     logging.info(f"loading {args.n} samples from {args.sample_dir}")
@@ -42,7 +43,7 @@ def run():
 
     logging.info("saving outputs")
     results = [
-        { 'prediction': predictions[i].tolist(), 'truth': truth[i].tolist() }
+        { 'prediction': split_y(predictions[i]), 'truth': split_y(truth[i]) }
         for i in range(predictions.shape[0])
     ]
     with open(os.path.join(args.outdir, 'results.json'), 'w') as f:
@@ -51,4 +52,4 @@ def run():
     logging.info("done")
 
 if __name__ == '__main__':
-    run()
+    predict()
