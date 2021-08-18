@@ -9,6 +9,7 @@ src/fastms/evaluate.py
 src/fastms/export.py
 src/fastms/hyperparameters.py
 src/fastms/loading.py
+src/fastms/model.py
 src/fastms/preprocessing.py
 src/fastms.egg-info/PKG-INFO
 src/fastms.egg-info/SOURCES.txt
