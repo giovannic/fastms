@@ -13,8 +13,9 @@ SEASONAL_INPUTS = [
     'seasonal_a3', 'seasonal_b3'
 ]
 TIMED_INPUTS = ['llin', 'irs', 'smc', 'rtss', 'tx', 'prop_act']
-# OUTPUTS = ['inc', 'prev', 'eir']
-OUTPUTS = ['prev']
+OUTPUTS = ['inc', 'prev', 'eir']
+N_FEATURES = 365 + len(TIMED_INPUTS) + len(INPUTS) + 1
+N_OUTPUTS = 365 * len(OUTPUTS)
 
 def to_rainfall(s):
     g = np.array(s[1:6:2])
@@ -29,12 +30,10 @@ def to_rainfall(s):
     ])
 
 def format_runs(runs):
-
     rainfall = np.stack([
         to_rainfall(np.array([entry[i] for i in SEASONAL_INPUTS]))
         for entry in runs
     ])
-
 
     # Time invariant parameters
     actual_eir = np.mean(
@@ -84,7 +83,7 @@ def format_runs(runs):
     # combine outputs into (samples, timesteps, (len(outputs) * year))
     y_yearly = np.stack(
         np.split(y, PERIOD, axis=1)
-    ).transpose((1, 0, 2, 3)).reshape((X.shape[0], PERIOD, -1))
+    ).transpose((1, 0, 3, 2)).reshape((X.shape[0], PERIOD, -1))
 
     return (X, y_yearly)
 
