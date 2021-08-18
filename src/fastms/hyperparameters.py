@@ -1,5 +1,16 @@
 from sklearn.model_selection import GridSearchCV
 
+DEFAULT_PARAMS = {
+    'optimiser': 'adam',
+    'n_layer': [
+        365 + 5, # n_features
+        365      # n_outputs
+    ],
+    'dropout': .1,
+    'loss': 'log_cosh',
+    'batch_size': 100
+}
+
 def hyperparameters(model):
     losses = ['mse', 'log_cosh']
     batches = [50, 100]

@@ -8,12 +8,12 @@ def create_model(optimiser, n_layer, dropout, loss, **kwargs):
     model.add(layers.LSTM(n_layer[0], dropout=dropout, return_sequences=True))
     model.add(layers.LSTM(n_layer[1], dropout=dropout, return_sequences=True))
     model.add(layers.TimeDistributed(layers.Dense(n_layer[1])))
-    model.compile(loss=loss, optimizer=optimiser)
+    model.compile(loss=loss, optimizer=optimiser, metrics=['mean_squared_error'])
     return model
 
-def train_model(model, gen, epochs, seed):
+def train_model(model, gen, epochs, seed, verbose=True):
     set_seed(seed)
-    model.fit(gen, epochs=epochs)
+    model.fit(gen, epochs=epochs, verbose=verbose)
 
 def model_predict(model, gen, scaler):
     predictions = model.predict(gen)
