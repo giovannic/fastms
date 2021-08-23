@@ -4,12 +4,16 @@ pyproject.toml
 setup.cfg
 setup.py
 src/fastms/__init__.py
-src/fastms/__main__.py
+src/fastms/convergence.py
 src/fastms/evaluate.py
 src/fastms/export.py
 src/fastms/hyperparameters.py
 src/fastms/loading.py
+src/fastms/log.py
+src/fastms/model.py
+src/fastms/predict.py
 src/fastms/preprocessing.py
+src/fastms/train.py
 src/fastms.egg-info/PKG-INFO
 src/fastms.egg-info/SOURCES.txt
 src/fastms.egg-info/dependency_links.txt
