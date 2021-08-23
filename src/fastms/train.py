@@ -3,7 +3,7 @@ import argparse
 from .log import setup_log, logging
 from .loading import create_training_generator
 from .model import create_model, train_model
-from .evaluate import convergence_stats, test_model
+from .evaluate import test_model
 from .export import save_model, save_scaler
 from .hyperparameters import DEFAULT_PARAMS
 
@@ -31,8 +31,8 @@ def train():
         args.seed
     )
 
-    logging.info(f"evaluating params {params}")
     params = DEFAULT_PARAMS
+    logging.info(f"evaluating params {params}")
     model = create_model(**params)
     train_model(
         model,
