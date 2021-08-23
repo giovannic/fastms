@@ -83,7 +83,7 @@ def format_runs(runs):
     # combine outputs into (samples, timesteps, (len(outputs) * year))
     y_yearly = np.stack(
         np.split(y, PERIOD, axis=1)
-    ).transpose((1, 0, 3, 2)).reshape((X.shape[0], PERIOD, -1))
+    ).transpose((1, 0, 3, 2)).reshape((X.shape[0], PERIOD, -1), order='F')
 
     return (X, y_yearly)
 
