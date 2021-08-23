@@ -9,14 +9,17 @@ out_dir <- args[7]
 
 print(paste0('beginning node ', node))
 
-period_years <- 19
+history_years <- 19
+future_years <- 20
 year <- 365
+month <- 30
 
 fits <- readRDS(global_fits)
 
 set.seed(seed)
 n <- n_batches * batch_size
 seasonality <- do.call(rbind, fits$seasonality)
+seasonality <- unique(seasonality)
 params <- data.frame(
   average_age = runif(n, 20 * 365, 40 * 365),
   init_EIR = runif(n, 0, 100),
@@ -27,8 +30,16 @@ params <- cbind(
   seasonality[sample(nrow(seasonality), n, replace = TRUE), ]
 )
 
+# nets
 llins <- lapply(fits$interventions, function(i) i$llin)
 llins <- llins[!duplicated(llins)]
+llins <- llins[sample(seq(llins), n, replace = TRUE)]
+llins <- lapply(
+  llins,
+  function(coverages) {
+    c(coverages, runif(future_years, 0, 0.8))
+  }
+)
 llins <- lapply(
   llins,
   function(l) {
@@ -44,7 +55,62 @@ llins <- lapply(
     )
   }
 )
-llins <- llins[sample(seq(llins), n, replace = TRUE)]
+
+# irs
+# NOTE: assuming only one round per year!
+irs <- lapply(fits$interventions, function(i) i$irs)
+irs <- irs[!duplicated(irs)]
+irs <- irs[sample(seq(irs), n, replace = TRUE)]
+irs <- lapply(
+  irs,
+  function(coverages) {
+    active <- runif(future_years, 0, 1) > .5
+    c(coverages, active * runif(future_years, 0.8, 0.85))
+  }
+)
+
+# smc
+# NOTE: assuming 3 rounds per year!
+smc <- lapply(fits$interventions, function(i) i$smc)
+smc <- smc[!duplicated(smc)]
+smc <- smc[sample(seq(smc), n, replace = TRUE)]
+smc <- lapply(
+  smc,
+  function(coverages) {
+    active <- runif(future_years, 0, 1) > .5
+    c(coverages, active * runif(future_years, 0.8, 0.85))
+  }
+)
+
+# rtss
+rtss <- lapply(
+  seq(n),
+  function(.) {
+    active <- runif(future_years, 0, 1) > .5
+    active * runif(future_years, 0.8, 0.85)
+  }
+)
+
+# tx
+tx <- lapply(fits$interventions, function(i) i$tx)
+tx <- tx[!duplicated(tx)]
+tx <- tx[sample(seq(tx), n, replace = TRUE)]
+tx <- lapply(
+  tx,
+  function(coverages) {
+    c(coverages, runif(future_years, 0, 1))
+  }
+)
+
+prop_act <- lapply(fits$interventions, function(i) i$prop_act)
+prop_act <- prop_act[!duplicated(prop_act)]
+prop_act <- prop_act[sample(seq(prop_act), n, replace = TRUE)]
+prop_act <- lapply(
+  prop_act,
+  function(coverages) {
+    c(coverages, rep(1, future_years))
+  }
+)
 
 process_row <- function(i) {
   row <- params[i,]
@@ -56,25 +122,93 @@ process_row <- function(i) {
     g = c(row$seasonal_a1, row$seasonal_a2, row$seasonal_a3),
     h = c(row$seasonal_b1, row$seasonal_b2, row$seasonal_b3),
     Q0 = row$Q0,
-    average_age = row$average_age
+    average_age = row$average_age,
+    prevalence_rendering_min_ages = 0,
+    prevalence_rendering_max_ages = 100 * year,
+    clinical_incidence_rendering_min_ages = 0,
+    clinical_incidence_rendering_max_ages = 100 * year
   ))
+
+  parameters <- malariasimulation::set_drugs(
+    parameters,
+    list(
+      malariasimulation::DHA_PQP_params,
+      malariasimulation::AL_params,
+      malariasimulation::SP_AQ_params
+    )
+  )
+
   parameters <- malariasimulation::set_equilibrium(parameters, row$init_EIR)
   
+  period <- history_years + future_years
+
+  # bednets
   parameters <- malariasimulation::set_bednets(
     parameters,
-    timesteps = seq(period_years) * year + (warmup * year),
+    timesteps = seq(0, period - 1) * year + (warmup * year),
     coverages = llins[[i]],
     retention = 5 * year,
-    dn0 = matrix(.533, nrow=period_years, ncol=1),
-    rn = matrix(.56, nrow=period_years, ncol=1),
-    rnm = matrix(.24, nrow=period_years, ncol=1),
-    gamman = rep(2.64 * 365, period_years)
+    dn0 = matrix(.533, nrow=period, ncol=1),
+    rn = matrix(.56, nrow=period, ncol=1),
+    rnm = matrix(.24, nrow=period, ncol=1),
+    gamman = rep(2.64 * year, period)
+  )
+
+  # spraying
+	parameters<- malariasimulation::set_spraying(
+		parameters,
+    timesteps = seq(0, period - 1) * year + (warmup * year),
+		coverages = irs[[i]],
+		ls_theta = matrix(2.025, nrow=period, ncol=1),
+		ls_gamma = matrix(-0.009, nrow=period, ncol=1),
+		ks_theta = matrix(-2.222, nrow=period, ncol=1),
+		ks_gamma = matrix(0.008, nrow=period, ncol=1),
+		ms_theta = matrix(-1.232, nrow=period, ncol=1),
+		ms_gamma = matrix(-0.009, nrow=period, ncol=1)
+	)
+
+  # rtss
+	parameters <- malariasimulation::set_rtss(
+		parameters,
+		timesteps = seq(0, future_years - 1) * year + ((warmup + history_years) * year),
+		coverages = rtss[[i]],
+		min_ages = 0,
+		max_ages = 100 * year,
+		boosters = 18 * month,
+		booster_coverage = .8
+	)
+
+  # smc
+  delivery_offset <- 30
+  peak_offset <- malariasimulation::peak_season_offset(parameters) 
+  parameters <- malariasimulation::set_smc(
+    parameters,
+    drug = 3,
+    timesteps = floor(seq(0, period - 1/3, by=1/3) * year + (warmup * year)),
+    coverages = rep(smc[[i]], each=3),
+    min_age = .5 * year,
+    max_age = 5 * year
+  )
+
+  # tx
+  parameters <- malariasimulation::set_clinical_treatment(
+    parameters,
+    drug = 1,
+    timesteps = seq(0, period - 1) * year + warmup * year,
+    coverages = tx[[i]] * (1 - prop_act[[i]])
+  )
+  
+  parameters <- malariasimulation::set_clinical_treatment(
+    parameters,
+    drug = 2,
+    timesteps = seq(0, period - 1) * year + warmup * year,
+    coverages = tx[[i]] * prop_act[[i]]
   )
 
   malariasimulation::run_simulation(
-    (period_years + warmup) * year,
+    (period + warmup) * year,
     parameters=parameters
-  )[c('pv_730_3650', 'EIR')]
+  )[c('pv_0_36500', 'clin_inc_0_36500', 'EIR')]
 }
 
 batches <- split(
@@ -95,7 +229,13 @@ for (batch_i in seq_along(batches)) {
 
     outdata <- params[batches[[batch_i]],]
     outdata$llin <- llins[batches[[batch_i]]]
-    outdata$prev <- lapply(results, function(x) x$pv_730_3650)
+    outdata$irs <- irs[batches[[batch_i]]]
+    outdata$smc <- smc[batches[[batch_i]]]
+    outdata$rtss <- rtss[batches[[batch_i]]]
+    outdata$tx <- tx[batches[[batch_i]]]
+    outdata$prop_act <- prop_act[batches[[batch_i]]]
+    outdata$inc <- lapply(results, function(x) x$clin_inc_0_36500)
+    outdata$prev <- lapply(results, function(x) x$pv_0_36500)
     outdata$eir <- lapply(results, function(x) x$EIR)
 
     jsonlite::write_json(outdata, outpath, pretty=TRUE)
