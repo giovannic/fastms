@@ -16,6 +16,7 @@ parser.add_argument('outdir', type=str, default='./')
 parser.add_argument('epochs', type=int, default=100)
 parser.add_argument('seed', type=int, default=42)
 parser.add_argument('--log', type=str, default='WARNING')
+parser.add_argument('--multigpu', type=bool, default=False)
 args = parser.parse_args()
 
 setup_log(args.log)
@@ -32,6 +33,7 @@ def train():
     )
 
     params = DEFAULT_PARAMS
+    params['multigpu'] = args.multigpu
     logging.info(f"evaluating params {params}")
     model = create_model(**params)
     train_model(
