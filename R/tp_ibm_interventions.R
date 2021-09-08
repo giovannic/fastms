@@ -48,14 +48,14 @@ params <- data.frame(
 
 daily_EIR <- params$init_EIR / 365
 
-params$ib0 <- vapply(
+params$ib0 <- daily_EIR * db / (daily_EIR * params$ub + 1) * vapply(
   runif(n, 1, 30) * 365,
-  function(a) daily_EIR * db / (daily_EIR * params$ub + 1) * immunity_scale(a, db),
+  function(a) immunity_scale(a, db),
   numeric(1)
 )
-params$ic0 <- vapply(
+params$ic0 <- daily_EIR * dc * vapply(
   runif(n, 1, 30) * 365,
-  function(a) daily_EIR * dc * immunity_scale(a, dc),
+  function(a) immunity_scale(a, dc),
   numeric(1)
 )
 
@@ -67,14 +67,15 @@ mosquito_params <- lapply(
     lapply(
       c('gamb', 'arab', 'fun'),
       function(label) {
+        f <- 1 / runif(1, 1, 4)
         list(
           species = label,
-          mum = 1 / runif(n, 3, 20),
-          blood_meal_rates = 1 / runif(n, 1, 4),
-          #forage = runif(n, 0, 1), #TODO: not parameterisable yet
-          Q0 = runif(n, 0, 1),
-          phi_indoors = runif(n, 0, 1),
-          phi_bednets = runif(n, 0, 1)
+          mum = 1 / runif(1, 3, 20),
+          blood_meal_rates = f,
+          foraging_time = runif(1, 0, f),
+          Q0 = runif(1, 0, 1),
+          phi_indoors = runif(1, 0, 1),
+          phi_bednets = runif(1, 0, 1)
         )
       }
     )
@@ -247,10 +248,11 @@ process_row <- function(i) {
 	)
 
   # rtss
-	parameters <- malariasimulation::set_rtss(
+	parameters <- malariasimulation::set_mass_rtss(
 		parameters,
 		timesteps = seq(0, future_years - 1) * year + ((warmup + history_years) * year),
 		coverages = rtss[[i]],
+		min_wait = 0,
 		min_ages = 0,
 		max_ages = 100 * year,
 		boosters = 18 * month,
@@ -284,10 +286,12 @@ process_row <- function(i) {
     coverages = tx[[i]] * prop_act[[i]]
   )
 
+  print(paste('row', i))
+
   malariasimulation::run_simulation(
     (period + warmup) * year,
     parameters=parameters
-  )[c('pv_0_36500', 'clin_inc_0_36500', 'EIR')]
+  )[c('n_detect_0_36500', 'n_0_36500', 'n_inc_clinical_0_36500', 'EIR')]
 }
 
 batches <- split(
@@ -315,8 +319,8 @@ for (batch_i in seq_along(batches)) {
     outdata$rtss <- rtss[batches[[batch_i]]]
     outdata$tx <- tx[batches[[batch_i]]]
     outdata$prop_act <- prop_act[batches[[batch_i]]]
-    outdata$inc <- lapply(results, function(x) x$clin_inc_0_36500)
-    outdata$prev <- lapply(results, function(x) x$pv_0_36500)
+    outdata$inc <- lapply(results, function(x) x$n_inc_clinical_0_36500 / x$n_0_36500)
+    outdata$prev <- lapply(results, function(x) x$n_detect_0_36500 / x$n_0_36500)
     outdata$eir <- lapply(results, function(x) x$EIR)
 
     jsonlite::write_json(outdata, outpath, auto_unbox=TRUE, pretty=TRUE)
