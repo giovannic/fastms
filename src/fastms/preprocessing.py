@@ -5,7 +5,34 @@ from sklearn.preprocessing import StandardScaler
 
 WARMUP = 5
 PERIOD = 39
-INPUTS = ['average_age', 'Q0']
+INPUTS = [
+    'average_age',
+    'sigma_squared',
+    'du',
+    'kb',
+    'ub',
+    'uc',
+    'kc',
+    'b0',
+    'ct',
+    'cd',
+    'cu',
+    'ib0',
+    'ic0',
+    'b1'
+]
+
+SPECIES_INPUTS = [
+    'mum',
+    'blood_meal_rates',
+    'foraging_time',
+    'Q0',
+    'phi_indoors',
+    'phi_bednets'
+]
+
+SPECIES_PROP = 'mosquito_proportions'
+
 SEASONAL_INPUTS = [
     'seasonal_a0',
     'seasonal_a1', 'seasonal_b1',
@@ -43,7 +70,15 @@ def format_runs(runs):
     X = np.concatenate(
         [
             np.stack([
-                np.array([entry[i] for i in INPUTS])
+                np.concatenate([
+                    np.array([entry[i] for i in INPUTS]),
+                    np.array([
+                        species_entry[i]
+                        for i in SPECIES_INPUTS for
+                        species_entry in entry['mosquito_params']
+                    ]),
+                    entry[SPECIES_PROP]
+                ])
                 for entry in runs
             ]),
             rainfall,
