@@ -5,7 +5,8 @@ batch_size <- as.numeric(args[3])
 n_batches <- as.numeric(args[4])
 seed <- as.numeric(args[5])
 warmup <- as.numeric(args[6])
-out_dir <- args[7]
+daily_dir <- args[7]
+yearly_dir <- args[8]
 
 print(paste0('beginning node ', node))
 
@@ -85,13 +86,10 @@ mosquito_params <- lapply(
 mosquito_proportions <- matrix(runif(n * 3), nrow = n, ncol = 3)
 mosquito_proportions <- mosquito_proportions / rowSums(mosquito_proportions)
 
-params <- cbind(
-  params,
-  seasonality[sample(nrow(seasonality), n, replace = TRUE), ]
-)
+seasonality <- seasonality[sample(nrow(seasonality), n, replace = TRUE), ]
 
 # nets
-llins <- lapply(fits$interventions, function(i) i$llin)
+llins <- lapply(fits$interventions, function(i) head(i$llin, history_years))
 llins <- llins[!duplicated(llins)]
 llins <- llins[sample(seq(llins), n, replace = TRUE)]
 llins <- lapply(
@@ -118,7 +116,7 @@ llins <- lapply(
 
 # irs
 # NOTE: assuming only one round per year!
-irs <- lapply(fits$interventions, function(i) i$irs)
+irs <- lapply(fits$interventions, function(i) head(i$irs, history_years))
 irs <- irs[!duplicated(irs)]
 irs <- irs[sample(seq(irs), n, replace = TRUE)]
 irs <- lapply(
@@ -131,7 +129,7 @@ irs <- lapply(
 
 # smc
 # NOTE: assuming 3 rounds per year!
-smc <- lapply(fits$interventions, function(i) i$smc)
+smc <- lapply(fits$interventions, function(i) head(i$smc, history_years))
 smc <- smc[!duplicated(smc)]
 smc <- smc[sample(seq(smc), n, replace = TRUE)]
 smc <- lapply(
@@ -147,12 +145,12 @@ rtss <- lapply(
   seq(n),
   function(.) {
     active <- runif(future_years, 0, 1) > .5
-    active * runif(future_years, 0., 0.85)
+    c(rep(0, history_years), active * runif(future_years, 0., 0.85))
   }
 )
 
 # tx
-tx <- lapply(fits$interventions, function(i) i$tx)
+tx <- lapply(fits$interventions, function(i) head(i$tx, history_years))
 tx <- tx[!duplicated(tx)]
 tx <- tx[sample(seq(tx), n, replace = TRUE)]
 tx <- lapply(
@@ -162,7 +160,7 @@ tx <- lapply(
   }
 )
 
-prop_act <- lapply(fits$interventions, function(i) i$prop_act)
+prop_act <- lapply(fits$interventions, function(i) head(i$prop_act, history_years))
 prop_act <- prop_act[!duplicated(prop_act)]
 prop_act <- prop_act[sample(seq(prop_act), n, replace = TRUE)]
 prop_act <- lapply(
@@ -172,15 +170,20 @@ prop_act <- lapply(
   }
 )
 
+period <- history_years + future_years
+one_round_timesteps <- seq(0, period - 1) * year
+three_round_timesteps <- floor(seq(0, period - 1/3, by=1/3) * year)
+
 process_row <- function(i) {
   row <- params[i,]
+  seas_row <- seasonality[i,]
   parameters <- malariasimulation::get_parameters(list(
     human_population = 10000,
     individual_mosquitoes = FALSE,
     model_seasonality = TRUE,
-    g0 = row$seasonal_a0,
-    g = c(row$seasonal_a1, row$seasonal_a2, row$seasonal_a3),
-    h = c(row$seasonal_b1, row$seasonal_b2, row$seasonal_b3),
+    g0 = seas_row$seasonal_a0,
+    g = c(seas_row$seasonal_a1, seas_row$seasonal_a2, seas_row$seasonal_a3),
+    h = c(seas_row$seasonal_b1, seas_row$seasonal_b2, seas_row$seasonal_b3),
     average_age = row$average_age,
     sigma_squared = row$sigma_squared,
     du = row$du,
@@ -220,12 +223,10 @@ process_row <- function(i) {
 
   parameters <- malariasimulation::set_equilibrium(parameters, row$init_EIR)
   
-  period <- history_years + future_years
-
   # bednets
   parameters <- malariasimulation::set_bednets(
     parameters,
-    timesteps = seq(0, period - 1) * year + (warmup * year),
+    timesteps = one_round_timesteps + (warmup * year),
     coverages = llins[[i]],
     retention = 5 * year,
     dn0 = matrix(.533, nrow=period, ncol=3),
@@ -235,29 +236,29 @@ process_row <- function(i) {
   )
 
   # spraying
-	parameters<- malariasimulation::set_spraying(
-		parameters,
-    timesteps = seq(0, period - 1) * year + (warmup * year),
-		coverages = irs[[i]],
-		ls_theta = matrix(2.025, nrow=period, ncol=3),
-		ls_gamma = matrix(-0.009, nrow=period, ncol=3),
-		ks_theta = matrix(-2.222, nrow=period, ncol=3),
-		ks_gamma = matrix(0.008, nrow=period, ncol=3),
-		ms_theta = matrix(-1.232, nrow=period, ncol=3),
-		ms_gamma = matrix(-0.009, nrow=period, ncol=3)
-	)
+  parameters<- malariasimulation::set_spraying(
+    parameters,
+    timesteps = one_round_timesteps + (warmup * year),
+    coverages = irs[[i]],
+    ls_theta = matrix(2.025, nrow=period, ncol=3),
+    ls_gamma = matrix(-0.009, nrow=period, ncol=3),
+    ks_theta = matrix(-2.222, nrow=period, ncol=3),
+    ks_gamma = matrix(0.008, nrow=period, ncol=3),
+    ms_theta = matrix(-1.232, nrow=period, ncol=3),
+    ms_gamma = matrix(-0.009, nrow=period, ncol=3)
+  )
 
   # rtss
-	parameters <- malariasimulation::set_mass_rtss(
-		parameters,
-		timesteps = seq(0, future_years - 1) * year + ((warmup + history_years) * year),
-		coverages = rtss[[i]],
-		min_wait = 0,
-		min_ages = 0,
-		max_ages = 100 * year,
-		boosters = 18 * month,
-		booster_coverage = .8
-	)
+  parameters <- malariasimulation::set_mass_rtss(
+    parameters,
+    timesteps = one_round_timesteps + (warmup * year),
+    coverages = rtss[[i]],
+    min_wait = 0,
+    min_ages = 0,
+    max_ages = 100 * year,
+    boosters = 18 * month,
+    booster_coverage = .8
+  )
 
   # smc
   delivery_offset <- 30
@@ -265,7 +266,7 @@ process_row <- function(i) {
   parameters <- malariasimulation::set_smc(
     parameters,
     drug = 3,
-    timesteps = floor(seq(0, period - 1/3, by=1/3) * year + (warmup * year)),
+    timesteps = three_round_timesteps + (warmup * year),
     coverages = rep(smc[[i]], each=3),
     min_age = .5 * year,
     max_age = 5 * year
@@ -275,14 +276,14 @@ process_row <- function(i) {
   parameters <- malariasimulation::set_clinical_treatment(
     parameters,
     drug = 1,
-    timesteps = seq(0, period - 1) * year + warmup * year,
+    timesteps = one_round_timesteps + warmup * year,
     coverages = tx[[i]] * (1 - prop_act[[i]])
   )
   
   parameters <- malariasimulation::set_clinical_treatment(
     parameters,
     drug = 2,
-    timesteps = seq(0, period - 1) * year + warmup * year,
+    timesteps = one_round_timesteps + warmup * year,
     coverages = tx[[i]] * prop_act[[i]]
   )
 
@@ -299,31 +300,134 @@ batches <- split(
   (seq(nrow(params))-1) %/% batch_size
 )
 
+to_dense_seq <- function(timesteps, values, range) {
+  s <- rep(0, range)
+  s[timesteps] <- values
+  s
+}
+
+fillna <- function(v, value) {
+  v[is.na(v)] <- value
+  v
+}
+
+daily_parameters <- function(i) {
+  species_vector <- unlist(lapply(
+    mosquito_params[[i]],
+    function(p) {
+      p$species <- NULL
+      as.numeric(p)
+    }
+  ))
+  p <- params[i,]
+  p$init_EIR <- NULL
+  p$EIR <- mean(results[[i]]$EIR[seq((warmup - 1)*year, (warmup)*year)])
+  c(
+    as.numeric(p),
+    species_vector,
+    mosquito_proportions[i,]
+  )
+}
+
+yearly_parameters <- function(i, rainfall) {
+  c(daily_parameters(i), rainfall)
+}
+
+daily_timed <- function(i, rainfall) {
+  matrix(
+    c(
+      rep(rainfall, period),
+      to_dense_seq(one_round_timesteps + 1, llins[[i]], period * year),
+      to_dense_seq(one_round_timesteps + 1, irs[[i]], period * year),
+      to_dense_seq(three_round_timesteps + 1, rep(smc[[i]], each=3), period * year),
+      to_dense_seq(one_round_timesteps + 1, rtss[[i]], period * year),
+      rep(tx[[i]], each=year),
+      rep(prop_act[[i]], each=year)
+    ),
+    ncol = 7,
+    nrow = (history_years + future_years) * year
+  )
+}
+
+yearly_timed <- function(i) {
+  matrix(
+    c(llins[[i]], irs[[i]], smc[[i]], rtss[[i]], tx[[i]], prop_act[[i]]),
+    ncol = 6,
+    nrow = history_years + future_years
+  )
+}
+
+daily_outputs <- function(result) {
+  matrix(
+    c(
+      result$n_detect_0_36500 / result$n_0_36500,
+      fillna(result$n_inc_clinical_0_36500, 0) / result$n_0_36500,
+      result$EIR
+    ),
+    ncol = 3,
+    nrow = (history_years + future_years) * year
+  )
+}
+
+yearly_outputs <- function(result) {
+  o <- daily_outputs(result)
+  apply(o, 2, function(series) colMeans(matrix(series, nrow=year)))
+}
+
+get_rainfall <- function(i) {
+  seas_row <- seasonality[i,]
+  vapply(
+    1:365,
+    function(t) malariasimulation:::rainfall(
+      t,
+      g0 = seas_row$seasonal_a0,
+      g = c(seas_row$seasonal_a1, seas_row$seasonal_a2, seas_row$seasonal_a3),
+      h = c(seas_row$seasonal_b1, seas_row$seasonal_b2, seas_row$seasonal_b3)
+    ),
+    numeric(1)
+  )
+}
+
+format_daily <- function(i) {
+  rainfall <- get_rainfall(i)
+  result <- results[[i]][seq(warmup*year + 1, nrow(results[[i]])),]
+  list(
+    parameters = daily_parameters(i),
+    timed_parameters = daily_timed(i, rainfall),
+    outputs = daily_outputs(result)
+  )
+}
+
+format_yearly <- function(i) {
+  rainfall <- get_rainfall(i)
+  result <- results[[i]][seq(warmup*year + 1, nrow(results[[i]])),]
+  list(
+    parameters = yearly_parameters(i, rainfall),
+    timed_parameters = yearly_timed(i),
+    outputs = yearly_outputs(result)
+  )
+}
+
 for (batch_i in seq_along(batches)) {
-  outpath <- file.path(
-    out_dir,
+  dailypath <- file.path(
+    daily_dir,
     paste0('realisation_', node, '_batch_', batch_i, '.json')
   )
-  if (!file.exists(outpath)) {
+  yearlypath <- file.path(
+    yearly_dir,
+    paste0('realisation_', node, '_batch_', batch_i, '.json')
+  )
+  if (!file.exists(dailypath)) {
     start_time <- Sys.time()
     print(paste0('node ', node, ' batch ', batch_i, ' starting'))
     # do the work
     results <- lapply(batches[[batch_i]], process_row)
 
-    outdata <- params[batches[[batch_i]],]
-    outdata$mosquito_params <- mosquito_params[batches[[batch_i]]]
-    outdata$mosquito_proportions <- apply(mosquito_proportions[batches[[batch_i]],,drop=F], 1, as.list)
-    outdata$llin <- llins[batches[[batch_i]]]
-    outdata$irs <- irs[batches[[batch_i]]]
-    outdata$smc <- smc[batches[[batch_i]]]
-    outdata$rtss <- rtss[batches[[batch_i]]]
-    outdata$tx <- tx[batches[[batch_i]]]
-    outdata$prop_act <- prop_act[batches[[batch_i]]]
-    outdata$inc <- lapply(results, function(x) x$n_inc_clinical_0_36500 / x$n_0_36500)
-    outdata$prev <- lapply(results, function(x) x$n_detect_0_36500 / x$n_0_36500)
-    outdata$eir <- lapply(results, function(x) x$EIR)
+    daily_data <- lapply(batches[[batch_i]], format_daily)
+    yearly_data <- lapply(batches[[batch_i]], format_yearly)
 
-    jsonlite::write_json(outdata, outpath, auto_unbox=TRUE, pretty=TRUE)
+    jsonlite::write_json(daily_data, dailypath, auto_unbox=TRUE, pretty=TRUE)
+    jsonlite::write_json(yearly_data, yearlypath, auto_unbox=TRUE, pretty=TRUE)
     print(paste0('node ', node, ' batch ', batch_i, ' completed'))
     print(Sys.time())
     print(Sys.time() - start_time)
