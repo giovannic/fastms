@@ -11,7 +11,6 @@ src/fastms/hyperparameters.py
 src/fastms/loading.py
 src/fastms/model.py
 src/fastms/log.py
-src/fastms/model.py
 src/fastms/predict.py
 src/fastms/preprocessing.py
 src/fastms/train.py
