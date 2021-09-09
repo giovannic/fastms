@@ -1,16 +1,13 @@
-from .preprocessing import N_FEATURES, N_OUTPUTS
 from sklearn.model_selection import GridSearchCV
 
-DEFAULT_PARAMS = {
-    'optimiser': 'adam',
-    'n_layer': [
-        N_FEATURES,
-        N_OUTPUTS
-    ],
-    'dropout': .1,
-    'loss': 'log_cosh',
-    'batch_size': 100
-}
+def default_params(n_features, n_outputs):
+    return {
+        'optimiser': 'adam',
+        'n_layer': [n_features, n_outputs],
+        'dropout': .1,
+        'loss': 'log_cosh',
+        'batch_size': 100
+    }
 
 def hyperparameters(model):
     optimisers = ['adam', 'rmsprop']
