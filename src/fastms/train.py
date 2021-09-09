@@ -5,7 +5,7 @@ from .loading import create_training_generator
 from .model import create_model, train_model
 from .evaluate import test_model
 from .export import save_model, save_scaler
-from .hyperparameters import DEFAULT_PARAMS
+from .hyperparameters import default_params
 
 # take I/O from cmdline
 parser = argparse.ArgumentParser(description='Do some magic')
@@ -32,7 +32,7 @@ def train():
         args.seed
     )
 
-    params = DEFAULT_PARAMS
+    params = default_params(samples.n_features, samples.n_outputs)
     params['multigpu'] = args.multigpu
     logging.info(f"evaluating params {params}")
     model = create_model(**params)

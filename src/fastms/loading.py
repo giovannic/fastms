@@ -37,8 +37,9 @@ def load_samples(indir, start, end):
     logging.info("formatting")
     ncpus = multiprocessing.cpu_count()
     n_chunks = len(runs) // ncpus
-    with multiprocessing.Pool(ncpus) as p:
-        dataset = p.map(format_runs, chunks(runs, n_chunks))
+    # with multiprocessing.Pool(ncpus) as p:
+        # dataset = p.map(format_runs, chunks(runs, n_chunks))
+    dataset = list(map(format_runs, chunks(runs, n_chunks)))
 
     X, y = zip(*dataset)
     X = np.concatenate(X)
@@ -63,6 +64,8 @@ class TrainingGenerator(object):
     split = .8
     X_scaler = None
     y_scaler = None
+    n_features = None
+    n_outputs = None
 
     def __init__(self, indir, n, split, seed):
         """
@@ -72,6 +75,8 @@ class TrainingGenerator(object):
         -- seed for the sample allocation
         """
         X, y = load_samples(indir, 0, n)
+        self.n_features = X.shape[2]
+        self.n_outputs = y.shape[2]
         self.seed = seed
 
         X_train, X_test, y_train, y_test = train_test_split(
@@ -108,6 +113,8 @@ class EvaluatingGenerator(object):
 
     def __init__(self, indir, n, split, seed, X_scaler):
         X, self.y = load_samples(indir, math.ceil(n * split), n)
+        self.n_features = X.shape[2]
+        self.n_outputs = self.y.shape[2]
         self.X = X_scaler.transform(X)
 
     def evaluating_generator(self, batch_size=100):
