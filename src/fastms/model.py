@@ -5,15 +5,15 @@ from tensorflow import keras, make_ndarray
 from tensorflow.keras import layers
 from tensorflow.keras.wrappers.scikit_learn import KerasRegressor
 
-def create_model(optimiser, n_layer, dropout, loss, **kwargs):
+def create_model(optimiser, rnn_layer, n_layer, dropout, loss, **kwargs):
     if list_physical_devices('GPU') and kwargs.get('multigpu', False):
       strategy = MirroredStrategy()
     else:  # Use the Default Strategy
       strategy = get_strategy()
     with strategy.scope():
         model = keras.Sequential()
-        model.add(layers.LSTM(n_layer[0], dropout=dropout, return_sequences=True))
-        model.add(layers.LSTM(n_layer[1], dropout=dropout, return_sequences=True))
+        model.add(rnn_layer(n_layer[0], dropout=dropout, return_sequences=True))
+        model.add(rnn_layer(n_layer[1], dropout=dropout, return_sequences=True))
         model.add(layers.TimeDistributed(layers.Dense(n_layer[1])))
     model.compile(loss=loss, optimizer=optimiser, metrics=['mean_squared_error'])
     return model
@@ -24,4 +24,4 @@ def train_model(model, gen, epochs, seed, verbose=True):
 
 def model_predict(model, gen, scaler):
     predictions = model.predict(gen)
-    return scaler.inverse_transform(predictions).reshape(predictions.shape[0], -1)
+    return scaler.inverse_transform(predictions)

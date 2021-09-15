@@ -1,4 +1,5 @@
 from sklearn.model_selection import GridSearchCV
+from tensorflow.keras.layers import LSTM
 
 def default_params(n_features, n_outputs):
     return {
@@ -6,7 +7,8 @@ def default_params(n_features, n_outputs):
         'n_layer': [n_features, n_outputs],
         'dropout': .1,
         'loss': 'log_cosh',
-        'batch_size': 100
+        'batch_size': 100,
+        'rnn_layer': LSTM
     }
 
 def hyperparameters(model):

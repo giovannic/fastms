@@ -1,8 +1,10 @@
 import os.path
 import argparse
+import json
+from tensorflow.keras.layers import GRU
 from .log import setup_log, logging
 from .loading import create_training_generator
-from .model import create_model, train_model
+from .model import create_model, train_model, model_predict
 from .evaluate import test_model
 from .export import save_model, save_scaler
 from .hyperparameters import default_params
@@ -17,6 +19,8 @@ parser.add_argument('epochs', type=int, default=100)
 parser.add_argument('seed', type=int, default=42)
 parser.add_argument('--log', type=str, default='WARNING')
 parser.add_argument('--multigpu', type=bool, default=False)
+parser.add_argument('--GRU', type=bool, default=False)
+parser.add_argument('--truncate', type=int, default=-1)
 args = parser.parse_args()
 
 setup_log(args.log)
@@ -29,11 +33,14 @@ def train():
         args.sample_dir,
         args.n,
         args.split,
-        args.seed
+        args.seed,
+        args.truncate
     )
 
     params = default_params(samples.n_features, samples.n_outputs)
     params['multigpu'] = args.multigpu
+    if (args.GRU):
+        params['rnn_layer'] = GRU
     logging.info(f"evaluating params {params}")
     model = create_model(**params)
     train_model(
@@ -42,9 +49,23 @@ def train():
         args.epochs,
         args.seed
     )
+
+    logging.info("predicting")
     test_model(model, samples.test_generator(params['batch_size']))
+    predictions = model_predict(
+        model,
+        samples.test_generator(params['batch_size']),
+        samples.y_scaler
+    )
+    truth = samples.truth()
+    results = [
+        { 'prediction': predictions[i].tolist(), 'truth': truth[i].tolist() }
+        for i in range(predictions.shape[0])
+    ]
 
     logging.info("saving outputs")
+    with open(os.path.join(args.outdir, 'results.json'), 'w') as f:
+        json.dump(results, f, indent=4)
     save_model(model, os.path.join(args.outdir, 'model'))
     save_scaler(samples.X_scaler, os.path.join(args.outdir, 'X_scaler'))
     save_scaler(samples.y_scaler, os.path.join(args.outdir, 'y_scaler'))

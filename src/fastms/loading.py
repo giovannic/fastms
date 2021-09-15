@@ -37,9 +37,8 @@ def load_samples(indir, start, end):
     logging.info("formatting")
     ncpus = multiprocessing.cpu_count()
     n_chunks = len(runs) // ncpus
-    # with multiprocessing.Pool(ncpus) as p:
-        # dataset = p.map(format_runs, chunks(runs, n_chunks))
-    dataset = list(map(format_runs, chunks(runs, n_chunks)))
+    with multiprocessing.Pool(ncpus) as p:
+        dataset = p.map(format_runs, chunks(runs, n_chunks))
 
     X, y = zip(*dataset)
     X = np.concatenate(X)
@@ -56,9 +55,6 @@ def load_samples(indir, start, end):
 def create_training_generator(*args):
     return TrainingGenerator(*args)
 
-def create_evaluating_generator(*args):
-    return EvaluatingGenerator(*args)
-
 class TrainingGenerator(object):
 
     split = .8
@@ -67,14 +63,18 @@ class TrainingGenerator(object):
     n_features = None
     n_outputs = None
 
-    def __init__(self, indir, n, split, seed):
+    def __init__(self, indir, n, split, seed, truncate):
         """
         -- indir the directory to scan for samples
         -- n the total number of samples to generate
         -- split the test train split
         -- seed for the sample allocation
+        -- truncate whether to truncate the timeseries
         """
         X, y = load_samples(indir, 0, n)
+        if truncate != -1:
+            X = X[:,:truncate,:]
+            y = y[:,:truncate,:]
         self.n_features = X.shape[2]
         self.n_outputs = y.shape[2]
         self.seed = seed
@@ -109,16 +109,5 @@ class TrainingGenerator(object):
             reshuffle_each_iteration=True
         ).batch(batch_size)
 
-class EvaluatingGenerator(object):
-
-    def __init__(self, indir, n, split, seed, X_scaler):
-        X, self.y = load_samples(indir, math.ceil(n * split), n)
-        self.n_features = X.shape[2]
-        self.n_outputs = self.y.shape[2]
-        self.X = X_scaler.transform(X)
-
-    def evaluating_generator(self, batch_size=100):
-        return Dataset.from_tensor_slices(self.X).batch(batch_size)
-
     def truth(self):
-        return self.y.reshape(self.y.shape[0], -1)
+        return self.y_scaler.inverse_transform(self.y_test)
