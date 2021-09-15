@@ -11,6 +11,16 @@ def default_params(n_features, n_outputs):
         'rnn_layer': LSTM
     }
 
+def default_ed_params(n_outputs, n_hidden = 100):
+    return {
+        'optimiser': 'adam',
+        'n_layer': [n_hidden, n_outputs],
+        'dropout': .1,
+        'loss': 'log_cosh',
+        'batch_size': 100,
+        'rnn_layer': LSTM
+    }
+
 def hyperparameters(model):
     optimisers = ['adam', 'rmsprop']
     losses = ['mse', 'log_cosh']

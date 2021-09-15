@@ -4,10 +4,10 @@ import json
 from tensorflow.keras.layers import GRU
 from .log import setup_log, logging
 from .loading import create_training_generator
-from .model import create_model, train_model, model_predict
+from .model import create_model, create_ed_model, train_model, model_predict
 from .evaluate import test_model
 from .export import save_model, save_scaler
-from .hyperparameters import default_params
+from .hyperparameters import default_params, default_ed_params
 
 # take I/O from cmdline
 parser = argparse.ArgumentParser(description='Do some magic')
@@ -21,6 +21,8 @@ parser.add_argument('--log', type=str, default='WARNING')
 parser.add_argument('--multigpu', type=bool, default=False)
 parser.add_argument('--GRU', type=bool, default=False)
 parser.add_argument('--truncate', type=int, default=-1)
+parser.add_argument('--ed', type=bool, default=False)
+parser.add_argument('--ed_hidden', type=int, default=100)
 args = parser.parse_args()
 
 setup_log(args.log)
@@ -37,12 +39,22 @@ def train():
         args.truncate
     )
 
-    params = default_params(samples.n_features, samples.n_outputs)
+    if (args.ed):
+        params = default_ed_params(samples.n_outputs, args.ed_hidden)
+    else:
+        params = default_params(samples.n_features, samples.n_outputs)
+
     params['multigpu'] = args.multigpu
     if (args.GRU):
         params['rnn_layer'] = GRU
+
     logging.info(f"evaluating params {params}")
-    model = create_model(**params)
+
+    if (args.ed):
+        model = create_model(**params)
+    else:
+        model = create_ed_model(**params)
+
     train_model(
         model,
         samples.train_generator(params['batch_size']),
