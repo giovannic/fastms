@@ -311,7 +311,7 @@ fillna <- function(v, value) {
   v
 }
 
-daily_parameters <- function(i) {
+daily_parameters <- function(i, result) {
   species_vector <- unlist(lapply(
     mosquito_params[[i]],
     function(p) {
@@ -321,7 +321,7 @@ daily_parameters <- function(i) {
   ))
   p <- params[i,]
   p$init_EIR <- NULL
-  p$EIR <- mean(results[[i]]$EIR[seq((warmup - 1)*year, (warmup)*year)])
+  p$EIR <- mean(result$EIR[seq((warmup - 1)*year, (warmup)*year)])
   c(
     as.numeric(p),
     species_vector,
@@ -329,8 +329,8 @@ daily_parameters <- function(i) {
   )
 }
 
-yearly_parameters <- function(i, rainfall) {
-  c(daily_parameters(i), rainfall)
+yearly_parameters <- function(i, result, rainfall) {
+  c(daily_parameters(i, result), rainfall)
 }
 
 daily_timed <- function(i, rainfall) {
@@ -358,6 +358,7 @@ yearly_timed <- function(i) {
 }
 
 daily_outputs <- function(result) {
+  result <- result[seq(warmup*year + 1, nrow(result)),]
   matrix(
     c(
       result$n_detect_0_36500 / result$n_0_36500,
@@ -388,21 +389,19 @@ get_rainfall <- function(i) {
   )
 }
 
-format_daily <- function(i) {
+format_daily <- function(i, result) {
   rainfall <- get_rainfall(i)
-  result <- results[[i]][seq(warmup*year + 1, nrow(results[[i]])),]
   list(
-    parameters = daily_parameters(i),
+    parameters = daily_parameters(i, result),
     timed_parameters = daily_timed(i, rainfall),
     outputs = daily_outputs(result)
   )
 }
 
-format_yearly <- function(i) {
+format_yearly <- function(i, result) {
   rainfall <- get_rainfall(i)
-  result <- results[[i]][seq(warmup*year + 1, nrow(results[[i]])),]
   list(
-    parameters = yearly_parameters(i, rainfall),
+    parameters = yearly_parameters(i, result, rainfall),
     timed_parameters = yearly_timed(i),
     outputs = yearly_outputs(result)
   )
@@ -423,8 +422,8 @@ for (batch_i in seq_along(batches)) {
     # do the work
     results <- lapply(batches[[batch_i]], process_row)
 
-    daily_data <- lapply(batches[[batch_i]], format_daily)
-    yearly_data <- lapply(batches[[batch_i]], format_yearly)
+    daily_data <- lapply(seq_along(results), function(i) format_daily(batches[[batch_i]][[i]], results[[i]]))
+    yearly_data <- lapply(seq_along(results), function(i) format_yearly(batches[[batch_i]][[i]], results[[i]]))
 
     jsonlite::write_json(daily_data, dailypath, auto_unbox=TRUE, pretty=TRUE)
     jsonlite::write_json(yearly_data, yearlypath, auto_unbox=TRUE, pretty=TRUE)

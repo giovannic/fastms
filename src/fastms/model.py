@@ -6,7 +6,7 @@ from tensorflow.keras import layers
 from tensorflow.keras.wrappers.scikit_learn import KerasRegressor
 
 def create_model(optimiser, n_layer, dropout, loss, **kwargs):
-    if list_physical_devices('GPU'):
+    if list_physical_devices('GPU') and kwargs.get('multigpu', False):
       strategy = MirroredStrategy()
     else:  # Use the Default Strategy
       strategy = get_strategy()
