@@ -37,9 +37,8 @@ def load_samples(indir, start, end):
     logging.info("formatting")
     ncpus = multiprocessing.cpu_count()
     n_chunks = len(runs) // ncpus
-    # with multiprocessing.Pool(ncpus) as p:
-        # dataset = p.map(format_runs, chunks(runs, n_chunks))
-    dataset = list(map(format_runs, chunks(runs, n_chunks)))
+    with multiprocessing.Pool(ncpus) as p:
+        dataset = p.map(format_runs, chunks(runs, n_chunks))
 
     X, y = zip(*dataset)
     X = np.concatenate(X)
