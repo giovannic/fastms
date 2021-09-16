@@ -72,6 +72,7 @@ class TrainingGenerator(object):
     y_scaler = None
     n_features = None
     n_outputs = None
+    n_timesteps = None
 
     def __init__(self, indir, n, split, seed, truncate):
         """
@@ -84,6 +85,7 @@ class TrainingGenerator(object):
         X, y = load_samples(indir, 0, n, truncate)
         self.n_features = X.shape[2]
         self.n_outputs = y.shape[2]
+        self.n_timesteps = y.shape[1]
         self.seed = seed
 
         X_train, X_test, y_train, y_test = train_test_split(

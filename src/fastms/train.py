@@ -51,9 +51,9 @@ def train():
     logging.info(f"evaluating params {params}")
 
     if (args.ed):
-        model = create_model(**params)
+        model = create_ed_model(n_timesteps = samples.n_timesteps, **params)
     else:
-        model = create_ed_model(**params)
+        model = create_model(**params)
 
     train_model(
         model,
