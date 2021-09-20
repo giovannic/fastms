@@ -20,7 +20,13 @@ def chunks(lst, n):
     for i in range(0, len(lst), n):
         yield lst[i:i + n]
 
-def load_samples(indir, start, end):
+def truncate_run(run, t):
+    if (t != -1):
+        run['timed_parameters'] = run['timed_parameters'][:t]
+        run['outputs'] = run['outputs'][:t]
+    return run
+
+def load_samples(indir, start, end, truncate):
     paths = sorted(
         glob.glob(os.path.join(indir, 'realisation_*.json'))
     )
@@ -32,7 +38,11 @@ def load_samples(indir, start, end):
     paths = paths[start_path:end_path]
 
     logging.info("reading in data")
-    runs = [run for runs in map(load_json, paths) for run in runs]
+    runs = [
+        truncate_run(run, truncate)
+        for runs in map(load_json, paths)
+        for run in runs
+    ]
 
     logging.info("formatting")
     ncpus = multiprocessing.cpu_count()
@@ -71,10 +81,7 @@ class TrainingGenerator(object):
         -- seed for the sample allocation
         -- truncate whether to truncate the timeseries
         """
-        X, y = load_samples(indir, 0, n)
-        if truncate != -1:
-            X = X[:,:truncate,:]
-            y = y[:,:truncate,:]
+        X, y = load_samples(indir, 0, n, truncate)
         self.n_features = X.shape[2]
         self.n_outputs = y.shape[2]
         self.seed = seed
