@@ -213,7 +213,9 @@ process_row <- function(i) {
     'n_730_3650',
     'n_detect_180_1770',
     'n_180_1770',
-    'EIR'
+    'EIR_gamb',
+    'EIR_arab',
+    'EIR_fun'
   )]
 }
 
@@ -221,6 +223,10 @@ batches <- split(
   seq(nrow(params)),
   (seq(nrow(params))-1) %/% batch_size
 )
+
+get_EIR <- function(result) {
+  colSums(rbind(result$EIR_gamb, result$EIR_fun, result$EIR_arab))
+}
 
 daily_parameters <- function(i, result) {
   species_vector <- unlist(lapply(
@@ -232,7 +238,7 @@ daily_parameters <- function(i, result) {
   ))
   row <- params[i,]
   c(
-    mean(result$EIR[seq((warmup - 1)*year, (warmup)*year)]),
+    mean(get_EIR(result)[seq((warmup - 1)*year, (warmup)*year)]),
     row$average_age,
     row$sigma_squared,
     row$du,
@@ -270,7 +276,7 @@ daily_outputs <- function(result) {
       result$n_detect_0_36500 / result$n_0_36500,
       result$n_detect_730_3650 / result$n_730_3650,
       result$n_detect_180_1770 / result$n_detect_180_1770,
-      result$EIR
+      get_EIR(result)
     ),
     ncol = 4,
     nrow = period * year
