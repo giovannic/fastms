@@ -9,7 +9,7 @@ yearly_dir <- args[7]
 
 print(paste0('beginning node ', node))
 
-history_years <- 19
+period <- 16
 year <- 365
 month <- 30
 
@@ -26,23 +26,29 @@ immunity_scale <- function(a, d) {
 }
 
 n <- n_batches * batch_size
+
+
+r <- lhs::randomLHS(n, 17)
+n_params <- 13
+
+
 seasonality <- do.call(rbind, fits$seasonality)
 seasonality <- unique(seasonality)
 params <- data.frame(
-  average_age = runif(n, 20 * 365, 40 * 365),
-  init_EIR = runif(n, 0, 1000),
-  sigma_squared = runif(n, 1, 3),
-  du = runif(n, 30, 100),
-  kb = runif(n, 0.01, 10),
-  ub = runif(n, 1, 1000),
-  uc = runif(n, 1, 1000), # not documented
-  ud = runif(n, 1, 1000), # not documented
-  kc = runif(n, 0.01, 10),
-  b0 = runif(n, 0.01, 0.99),
-  ct = runif(n, 0, 1),
-  cd = runif(n, 0, 1),
+  average_age = qunif(r[,1], min=20 * 365, max=40 * 365),
+  init_EIR = qunif(r[,2], min=0, max=1000),
+  sigma_squared = qunif(r[,3], min=1, max=3),
+  du = qunif(r[,3], min=30, max=100),
+  kb = qunif(r[,4], min=0.01, max=10),
+  ub = qunif(r[,5], min=1, max=1000),
+  uc = qunif(r[,6], min=1, max=1000), # not documented
+  ud = qunif(r[,7], min=1, max=1000), # not documented
+  kc = qunif(r[,8], min=0.01, max=10),
+  b0 = qunif(r[,9], min=0.01, max=0.99),
+  ct = qunif(r[,10], min=0, max=1),
+  cd = qunif(r[,11], min=0, max=1),
   #ca = runif(n, 0, 1), #TODO: how is this changed?
-  cu = runif(n, 0, 1)
+  cu = qunif(r[,12], min=0, max=1)
 )
 
 daily_EIR <- params$init_EIR / 365
@@ -58,23 +64,23 @@ params$ic0 <- daily_EIR * dc * vapply(
   numeric(1)
 )
 
-params$b1 <- runif(n, 0, 1) * params$b0
+params$b1 <- qunif(r[,13], min=0, max=1) * params$b0
 
+species <- c('gamb', 'arab', 'fun')
 mosquito_params <- lapply(
   seq(n),
-  function(.) {
+  function(i) {
     lapply(
-      c('gamb', 'arab', 'fun'),
-      function(label) {
-        f <- 1 / runif(1, 1, 4)
+      seq_along(species),
+      function(j) {
         list(
-          species = label,
-          mum = 1 / runif(1, 3, 20),
-          blood_meal_rates = f,
-          foraging_time = runif(1, 0, f),
-          Q0 = runif(1, 0, 1),
-          phi_indoors = runif(1, 0, 1),
-          phi_bednets = runif(1, 0, 1)
+          species = species[[j]],
+          mum = 0.1253333,
+          blood_meal_rates = 1 / 3,
+          foraging_time = 0.69,
+          Q0 = qunif(r[i,12 + j], min=0, max=1),
+          phi_indoors = qunif(r[i, 12 + j], min=0, max=1),
+          phi_bednets = qunif(r[i, 12 + j], min=0, max=1)
         )
       }
     )
@@ -86,8 +92,10 @@ mosquito_proportions <- mosquito_proportions / rowSums(mosquito_proportions)
 
 seasonality <- seasonality[sample(nrow(seasonality), n, replace = TRUE), ]
 
+r_int <- lhs::randomLHS(n, period * 3)
+
 # nets
-llins <- lapply(seq(n), function(.) runif(history_years, 0, 0.8))
+llins <- lapply(seq(n), function(i) qunif(r_int[i, seq(period)], min=0, max=0.8))
 llins <- lapply(
   llins,
   function(l) {
@@ -104,15 +112,12 @@ llins <- lapply(
   }
 )
 
-# rtss
-rtss <- lapply(seq(n), function(.) runif(history_years, 0., 0.85))
+# irs
+irs <- lapply(seq(n), function(i) qunif(r_int[i, seq(period) + period], min=0, max=0.85))
 
 # tx
-tx <- lapply(seq(n), function(.) runif(history_years, 0., 0.85))
+tx <- lapply(seq(n), function(i) qunif(r_int[i, seq(period) + period * 2], min=0, max=0.85))
 
-prop_act <- lapply(seq(n), function(.) runif(history_years, 0., 0.85))
-
-period <- history_years
 one_round_timesteps <- seq(0, period - 1) * year
 
 process_row <- function(i) {
@@ -141,8 +146,10 @@ process_row <- function(i) {
     cd = row$cd,
     #ca = row$ca, #TODO: as above
     cu = row$cu,
-    prevalence_rendering_min_ages = c(0, 2 * year, 6 * month),
-    prevalence_rendering_max_ages = c(100 * year, 10 * year, 59 * month)
+    prevalence_rendering_min_ages = c(2 * year),
+    prevalence_rendering_max_ages = c(10 * year),
+    clinical_incidence_rendering_min_ages = 0,
+    clinical_incidence_rendering_max_ages = 100 * year
   ))
 
   parameters <- malariasimulation::set_species(
@@ -174,31 +181,25 @@ process_row <- function(i) {
     gamman = rep(2.64 * year, period)
   )
 
-  # rtss
-  parameters <- malariasimulation::set_mass_rtss(
+  # spraying
+  parameters<- malariasimulation::set_spraying(
     parameters,
     timesteps = one_round_timesteps + (warmup * year),
-    coverages = rtss[[i]],
-    min_wait = 0,
-    min_ages = 0,
-    max_ages = 100 * year,
-    boosters = 18 * month,
-    booster_coverage = .8
+    coverages = irs[[i]],
+    ls_theta = matrix(2.025, nrow=period, ncol=3),
+    ls_gamma = matrix(-0.009, nrow=period, ncol=3),
+    ks_theta = matrix(-2.222, nrow=period, ncol=3),
+    ks_gamma = matrix(0.008, nrow=period, ncol=3),
+    ms_theta = matrix(-1.232, nrow=period, ncol=3),
+    ms_gamma = matrix(-0.009, nrow=period, ncol=3)
   )
 
   # tx
   parameters <- malariasimulation::set_clinical_treatment(
     parameters,
-    drug = 1,
-    timesteps = one_round_timesteps + warmup * year,
-    coverages = tx[[i]] * (1 - prop_act[[i]])
-  )
-  
-  parameters <- malariasimulation::set_clinical_treatment(
-    parameters,
     drug = 2,
     timesteps = one_round_timesteps + warmup * year,
-    coverages = tx[[i]] * prop_act[[i]]
+    coverages = tx[[i]]
   )
 
   print(paste('row', i))
@@ -207,12 +208,10 @@ process_row <- function(i) {
     (period + warmup) * year,
     parameters=parameters
   )[c(
-    'n_detect_0_36500',
+    'n_inc_clinical_0_36500',
     'n_0_36500',
     'n_detect_730_3650',
     'n_730_3650',
-    'n_detect_180_1770',
-    'n_180_1770',
     'EIR_gamb',
     'EIR_arab',
     'EIR_fun'
@@ -232,8 +231,11 @@ daily_parameters <- function(i, result) {
   species_vector <- unlist(lapply(
     mosquito_params[[i]],
     function(p) {
-      p$species <- NULL
-      as.numeric(p)
+      c(
+        p$Q0,
+        p$phi_indoors,
+        p$phi_bednets
+      )
     }
   ))
   row <- params[i,]
@@ -263,8 +265,8 @@ yearly_parameters <- function(i, result, rainfall) {
 
 yearly_timed <- function(i) {
   matrix(
-    c(llins[[i]], rtss[[i]], tx[[i]], prop_act[[i]]),
-    ncol = 4,
+    c(llins[[i]], irs[[i]], tx[[i]]),
+    ncol = 3,
     nrow = period
   )
 }
@@ -273,12 +275,11 @@ daily_outputs <- function(result) {
   result <- result[seq(warmup*year + 1, nrow(result)),]
   matrix(
     c(
-      result$n_detect_0_36500 / result$n_0_36500,
       result$n_detect_730_3650 / result$n_730_3650,
-      result$n_detect_180_1770 / result$n_detect_180_1770,
+      result$n_inc_clinical_0_36500 / result$n_0_36500,
       get_EIR(result)
     ),
-    ncol = 4,
+    ncol = 3,
     nrow = period * year
   )
 }
