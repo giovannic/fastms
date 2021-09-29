@@ -38,17 +38,17 @@ params <- data.frame(
   average_age = qunif(r[,1], min=20 * 365, max=40 * 365),
   init_EIR = qunif(r[,2], min=0, max=1000),
   sigma_squared = qunif(r[,3], min=1, max=3),
-  du = qunif(r[,3], min=30, max=100),
-  kb = qunif(r[,4], min=0.01, max=10),
-  ub = qunif(r[,5], min=1, max=1000),
-  uc = qunif(r[,6], min=1, max=1000), # not documented
-  ud = qunif(r[,7], min=1, max=1000), # not documented
-  kc = qunif(r[,8], min=0.01, max=10),
-  b0 = qunif(r[,9], min=0.01, max=0.99),
-  ct = qunif(r[,10], min=0, max=1),
-  cd = qunif(r[,11], min=0, max=1),
+  du = qunif(r[,4], min=30, max=100),
+  kb = qunif(r[,5], min=0.01, max=10),
+  ub = qunif(r[,6], min=1, max=1000),
+  uc = qunif(r[,7], min=1, max=1000), # not documented
+  ud = qunif(r[,8], min=1, max=1000), # not documented
+  kc = qunif(r[,9], min=0.01, max=10),
+  b0 = qunif(r[,10], min=0.01, max=0.99),
+  ct = qunif(r[,11], min=0, max=1),
+  cd = qunif(r[,12], min=0, max=1),
   #ca = runif(n, 0, 1), #TODO: how is this changed?
-  cu = qunif(r[,12], min=0, max=1)
+  cu = qunif(r[,13], min=0, max=1)
 )
 
 daily_EIR <- params$init_EIR / 365
@@ -64,7 +64,7 @@ params$ic0 <- daily_EIR * dc * vapply(
   numeric(1)
 )
 
-params$b1 <- qunif(r[,13], min=0, max=1) * params$b0
+params$b1 <- qunif(r[,14], min=0, max=1) * params$b0
 
 species <- c('gamb', 'arab', 'fun')
 mosquito_params <- lapply(
@@ -78,9 +78,9 @@ mosquito_params <- lapply(
           mum = 0.1253333,
           blood_meal_rates = 1 / 3,
           foraging_time = 0.69,
-          Q0 = qunif(r[i,12 + j], min=0, max=1),
-          phi_indoors = qunif(r[i, 12 + j], min=0, max=1),
-          phi_bednets = qunif(r[i, 12 + j], min=0, max=1)
+          Q0 = qunif(r[i, 14 + j], min=0, max=1),
+          phi_indoors = qunif(r[i, 14 + j], min=0, max=1),
+          phi_bednets = qunif(r[i, 14 + j], min=0, max=1)
         )
       }
     )
@@ -96,21 +96,6 @@ r_int <- lhs::randomLHS(n, period * 3)
 
 # nets
 llins <- lapply(seq(n), function(i) qunif(r_int[i, seq(period)], min=0, max=0.8))
-llins <- lapply(
-  llins,
-  function(l) {
-    tail(
-      as.numeric(
-        filter( # smooth out the coverages (3 years)
-          c(0, 0, l),
-          rep(1 / 3, 3),
-          sides = 1
-        )
-      ),
-      -2
-    )
-  }
-)
 
 # irs
 irs <- lapply(seq(n), function(i) qunif(r_int[i, seq(period) + period], min=0, max=0.85))
@@ -271,22 +256,10 @@ yearly_timed <- function(i) {
   )
 }
 
-daily_outputs <- function(result) {
-  result <- result[seq(warmup*year + 1, nrow(result)),]
-  matrix(
-    c(
-      result$n_detect_730_3650 / result$n_730_3650,
-      result$n_inc_clinical_0_36500 / result$n_0_36500,
-      get_EIR(result)
-    ),
-    ncol = 3,
-    nrow = period * year
-  )
-}
-
 yearly_outputs <- function(result) {
-  o <- daily_outputs(result)
-  apply(o, 2, function(series) colMeans(matrix(series, nrow=year)))
+  result <- result[seq(warmup*year + 1, nrow(result)),]
+  series <- result$n_detect_730_3650 / result$n_730_3650
+  t(matrix(series, nrow=year))
 }
 
 get_rainfall <- function(i) {
