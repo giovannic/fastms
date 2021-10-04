@@ -1,6 +1,6 @@
 args = commandArgs(trailingOnly=TRUE)
 node <- as.numeric(args[1])
-global_fits <- args[2]
+data_path <- args[2]
 batch_size <- as.numeric(args[3])
 n_batches <- as.numeric(args[4])
 seed <- as.numeric(args[5])
@@ -9,11 +9,12 @@ yearly_dir <- args[7]
 
 print(paste0('beginning node ', node))
 
-period <- 16
+#history_years <- 16
+history_years <- 2
+future_years <- 5
+period <- history_years + future_years
 year <- 365
 month <- 30
-
-fits <- readRDS(global_fits)
 
 set.seed(seed)
 
@@ -27,13 +28,9 @@ immunity_scale <- function(a, d) {
 
 n <- n_batches * batch_size
 
-
 r <- lhs::randomLHS(n, 17)
 n_params <- 13
 
-
-seasonality <- do.call(rbind, fits$seasonality)
-seasonality <- unique(seasonality)
 params <- data.frame(
   average_age = qunif(r[,1], min=20 * 365, max=40 * 365),
   init_EIR = qunif(r[,2], min=0, max=1000),
@@ -90,18 +87,32 @@ mosquito_params <- lapply(
 mosquito_proportions <- matrix(runif(n * 3), nrow = n, ncol = 3)
 mosquito_proportions <- mosquito_proportions / rowSums(mosquito_proportions)
 
+seasonality <- read.csv(file.path(data_path, 'seasonality.csv'))
 seasonality <- seasonality[sample(nrow(seasonality), n, replace = TRUE), ]
 
-r_int <- lhs::randomLHS(n, period * 3)
+r_int <- lhs::randomLHS(n, future_years * 3)
+
+load_intervention <- function(path, offset) {
+  df <- read.csv(path)
+  df <- df[,!(names(df) %in% c('Name', 'Gaul_Code'))]
+  df <- df[,seq(history_years)]
+  df <- df[!duplicated(df),]
+  df <- df[sample(nrow(df), n, replace = TRUE),]
+  future <- qunif(r_int[, seq(future_years) + offset * future_years], min=0, max=0.8)
+  if (nrow(df) == 1) {
+    return(data.frame(c(df, future)))
+  }
+  cbind(df, future)
+}
 
 # nets
-llins <- lapply(seq(n), function(i) qunif(r_int[i, seq(period)], min=0, max=0.8))
+llins <- load_intervention(file.path(data_path, 'itn.csv'), 0)
 
 # irs
-irs <- lapply(seq(n), function(i) qunif(r_int[i, seq(period) + period], min=0, max=0.85))
+irs <- load_intervention(file.path(data_path, 'irs.csv'), 1)
 
 # tx
-tx <- lapply(seq(n), function(i) qunif(r_int[i, seq(period) + period * 2], min=0, max=0.85))
+tx <- load_intervention(file.path(data_path, 'act.csv'), 2)
 
 one_round_timesteps <- seq(0, period - 1) * year
 
@@ -158,7 +169,7 @@ process_row <- function(i) {
   parameters <- malariasimulation::set_bednets(
     parameters,
     timesteps = one_round_timesteps + (warmup * year),
-    coverages = llins[[i]],
+    coverages = as.numeric(llins[i,]),
     retention = 5 * year,
     dn0 = matrix(.533, nrow=period, ncol=3),
     rn = matrix(.56, nrow=period, ncol=3),
@@ -167,10 +178,10 @@ process_row <- function(i) {
   )
 
   # spraying
-  parameters<- malariasimulation::set_spraying(
+  parameters <- malariasimulation::set_spraying(
     parameters,
     timesteps = one_round_timesteps + (warmup * year),
-    coverages = irs[[i]],
+    coverages = as.numeric(irs[i,]),
     ls_theta = matrix(2.025, nrow=period, ncol=3),
     ls_gamma = matrix(-0.009, nrow=period, ncol=3),
     ks_theta = matrix(-2.222, nrow=period, ncol=3),
@@ -184,7 +195,7 @@ process_row <- function(i) {
     parameters,
     drug = 2,
     timesteps = one_round_timesteps + warmup * year,
-    coverages = tx[[i]]
+    coverages = as.numeric(tx[i,])
   )
 
   print(paste('row', i))
@@ -250,7 +261,7 @@ yearly_parameters <- function(i, result, rainfall) {
 
 yearly_timed <- function(i) {
   matrix(
-    c(llins[[i]], irs[[i]], tx[[i]]),
+    c(as.numeric(llins[i,]), as.numeric(irs[i,]), as.numeric(tx[i,])),
     ncol = 3,
     nrow = period
   )
