@@ -1,7 +1,6 @@
 import math
 import numpy as np
 from sklearn.base import TransformerMixin
-from sklearn.preprocessing import StandardScaler
 
 def format_runs(runs):
     # Time invariant parameters
@@ -23,48 +22,23 @@ def format_runs(runs):
     return (X, y)
 
 def create_scaler(data):
-    scaler = NDStandardScaler()
+    scaler = SequenceScaler()
     scaler.fit(data)
     return scaler
 
-class NDStandardScaler(TransformerMixin):
+class SequenceScaler(TransformerMixin):
     def __init__(self, **kwargs):
-        self._scaler = StandardScaler(copy=True, **kwargs)
-        self._orig_shape = None
+        self._mean = None
+        self._std = None
 
     def fit(self, X, **kwargs):
-        X = np.array(X)
-        # Save the original shape to reshape the flattened X later
-        # back to its original shape
-        if len(X.shape) > 1:
-            self._orig_shape = X.shape[1:]
-        X = self._flatten(X)
-        self._scaler.fit(X, **kwargs)
+        self._mean = np.mean(X, axis=(0, 1))
+        self._std = np.std(X, axis=(0, 1))
+        self._std[self._std == 0.] = 1.
         return self
     
     def transform(self, X, **kwargs):
-        X = np.array(X)
-        X = self._flatten(X)
-        X = self._scaler.transform(X, **kwargs)
-        X = self._reshape(X)
-        return X
+        return (X - self._mean) / self._std
     
     def inverse_transform(self, X, **kwargs):
-        X = np.array(X)
-        X = self._flatten(X)
-        X = self._scaler.inverse_transform(X, **kwargs)
-        X = self._reshape(X)
-        return X
-
-    def _flatten(self, X):
-        # Reshape X to <= 2 dimensions
-        if len(X.shape) > 2:
-            n_dims = np.prod(self._orig_shape)
-            X = X.reshape(-1, n_dims)
-        return X
-    
-    def _reshape(self, X):
-        # Reshape X back to it's original shape
-        if len(X.shape) >= 2:
-            X = X.reshape(-1, *self._orig_shape)
-        return X
+        return X * self._std + self._mean
