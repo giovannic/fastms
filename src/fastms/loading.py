@@ -6,7 +6,7 @@ import multiprocessing
 from tensorflow.data import Dataset
 from sklearn.model_selection import train_test_split
 import numpy as np
-from .preprocessing import format_runs, create_scaler
+from .preprocessing import format_runs, GlobalScaler, SequenceScaler
 import logging
 
 ENTRIES_PER_PATH = 10
@@ -93,8 +93,8 @@ class TrainingGenerator(object):
             train_size=split,
             random_state=self.seed
         )
-        self.X_scaler = create_scaler(X_train)
-        self.y_scaler = create_scaler(y_train)
+        self.X_scaler = SequenceScaler().fit(X_train)
+        self.y_scaler = GlobalScaler().fit(y_train)
         self.X_train = self.X_scaler.transform(X_train)
         self.X_test = self.X_scaler.transform(X_test)
         self.y_train = self.y_scaler.transform(y_train)
