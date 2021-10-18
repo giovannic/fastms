@@ -134,8 +134,9 @@ setup(
         'numpy==1.19.2',
         'pandas',
         'sklearn',
-        'tensorflow==2.4.1'
-    ],  # Optional
+        'tensorflow==2.4.1',
+        'matplotlib'
+    ],
 
     # List additional groups of dependencies here (e.g. development
     # dependencies). Users will be able to install these using the "extras"

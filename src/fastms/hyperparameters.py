@@ -11,7 +11,7 @@ def default_params(n_features, n_outputs):
         'rnn_layer': LSTM
     }
 
-def default_ed_params(n_outputs, n_hidden = [100, 50]):
+def default_ed_params(n_outputs, n_hidden = [100]):
     return {
         'optimiser': 'adam',
         'n_layer': n_hidden + [n_outputs],
