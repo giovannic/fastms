@@ -1,4 +1,5 @@
 from tensorflow.keras import layers
+from tensorflow import concat
 
 class BahdanauAttention(layers.Layer):
     def __init__(self, units):
@@ -31,15 +32,15 @@ class AttentionDecoder(layers.Layer):
         self.w1 = layers.Dense(units, activation='tanh', use_bias=False)
         self.w2 = layers.Dense(n_outputs, activation='softmax')
 
-    def call(self, query, value):
-        w1_query = self.w1(query)
-        w2_key = self.w2(value)
-
+    def call(self, inputs, enc_output, state):
+        rnn_output, h, c = self.rnn_layer(inputs, initial_state = state)
         context_vector, attention_weights = self.attention(
-            inputs = [w1_query, value, w2_key],
-            return_attention_scores = True,
+            query=rnn_output,
+            value=enc_output
         )
+        context_and_rnn_output = concat([context_vector, rnn_output], axis=-1)
 
-        return context_vector, attention_weights
+        attention_vector = self.w1(context_and_rnn_output)
+        output = self.w2(attention_vector)
 
-
+        return output, attention_weights, [h, c]

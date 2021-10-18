@@ -4,6 +4,7 @@ from tensorflow.random import set_seed
 from tensorflow import keras, make_ndarray
 from tensorflow.keras import layers, Model, Input
 from tensorflow.keras.wrappers.scikit_learn import KerasRegressor
+from .attention import BahdanauAttention, AttentionDecoder
 
 def create_model(optimiser, rnn_layer, n_layer, dropout, loss, **kwargs):
     if list_physical_devices('GPU') and kwargs.get('multigpu', False):
@@ -62,20 +63,16 @@ def create_attention_model(
             return_sequences=True,
             return_state=True
         )
-        encoder_output, h, c  = encoder(encoder_input)
+        encoder_output, h, c = encoder(encoder_input)
 
         # decoder
-        decoder_input = Input(shape=(None, n_latent), dtype='float32')
-        decoder = rnn_layer(n_latent, dropout=dropout, return_sequences=True)
-        decoder_output = decoder(decoder_input, initial_state=[h, c])
-
-        # attention
-        attention = layers.Attention()([encoder_output, decoder_output])
-        att_dec_input = layers.Concatenate(axis=-1)([decoder_output, attention])
-        att_decoder = layers.TimeDistributed(
-            layers.Dense(n_outputs, activation='softmax')
+        decoder = AttentionDecoder(
+            n_latent,
+            n_outputs,
+            rnn_layer,
+            BahdanauAttention
         )
-        output = att_decoder(att_dec_input)
+        output, attention, state = decoder(encoder_input, encoder_output, [h, c])
         model = Model(encoder_input, output)
 
     model.compile(loss=loss, optimizer=optimiser, metrics=['mean_squared_error'])
