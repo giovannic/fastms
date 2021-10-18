@@ -1,6 +1,19 @@
 from tensorflow.keras import layers
 from tensorflow import concat
 
+class LuongAttention(layers.Layer):
+    def __init__(self, units):
+        super().__init__()
+        self.attention = layers.Attention()
+
+    def call(self, query, value):
+        context_vector, attention_weights = self.attention(
+            inputs = [query, value],
+            return_attention_scores = True,
+        )
+
+        return context_vector, attention_weights
+
 class BahdanauAttention(layers.Layer):
     def __init__(self, units):
         super().__init__()
@@ -30,7 +43,9 @@ class AttentionDecoder(layers.Layer):
         )
         self.attention = AttentionLayer(units)
         self.w1 = layers.Dense(units, activation='tanh', use_bias=False)
-        self.w2 = layers.Dense(n_outputs, activation='softmax')
+        self.w2 = layers.TimeDistributed(
+            layers.Dense(n_outputs, activation='tanh')
+        )
 
     def call(self, inputs, enc_output, state):
         rnn_output, h, c = self.rnn_layer(inputs, initial_state = state)

@@ -4,7 +4,7 @@ from tensorflow.random import set_seed
 from tensorflow import keras, make_ndarray
 from tensorflow.keras import layers, Model, Input
 from tensorflow.keras.wrappers.scikit_learn import KerasRegressor
-from .attention import BahdanauAttention, AttentionDecoder
+from .attention import BahdanauAttention, LuongAttention, AttentionDecoder
 
 def create_model(optimiser, rnn_layer, n_layer, dropout, loss, **kwargs):
     if list_physical_devices('GPU') and kwargs.get('multigpu', False):
@@ -70,7 +70,7 @@ def create_attention_model(
             n_latent,
             n_outputs,
             rnn_layer,
-            BahdanauAttention
+            LuongAttention
         )
         output, attention, state = decoder(encoder_input, encoder_output, [h, c])
         model = Model(encoder_input, output)
