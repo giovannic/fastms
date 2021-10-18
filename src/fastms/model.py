@@ -2,7 +2,7 @@ from tensorflow.config import list_physical_devices
 from tensorflow.distribute import MirroredStrategy, get_strategy
 from tensorflow.random import set_seed
 from tensorflow import keras, make_ndarray
-from tensorflow.keras import layers
+from tensorflow.keras import layers, Model, Input
 from tensorflow.keras.wrappers.scikit_learn import KerasRegressor
 
 def create_model(optimiser, rnn_layer, n_layer, dropout, loss, **kwargs):
@@ -42,10 +42,11 @@ def create_ed_model(
 def create_attention_model(
     optimiser,
     rnn_layer,
-    n_layer,
+    n_latent,
+    n_outputs,
+    n_features,
     dropout,
     loss,
-    n_timesteps,
     **kwargs
     ):
     if list_physical_devices('GPU') and kwargs.get('multigpu', False):
@@ -53,10 +54,30 @@ def create_attention_model(
     else:  # Use the Default Strategy
       strategy = get_strategy()
     with strategy.scope():
-        encoder = rnn_layer(n_layer[0], dropout=dropout)
-        model.add(layers.RepeatVector(n_timesteps))
-        model.add(rnn_layer(n_layer[1], dropout=dropout, return_sequences=True))
-        model.add(layers.TimeDistributed(layers.Dense(n_layer[1])))
+        # encoder
+        encoder_input = Input(shape=(None, n_features), dtype='float32')
+        encoder = rnn_layer(
+            n_latent,
+            dropout=dropout,
+            return_sequences=True,
+            return_state=True
+        )
+        encoder_output, h, c  = encoder(encoder_input)
+
+        # decoder
+        decoder_input = Input(shape=(None, n_latent), dtype='float32')
+        decoder = rnn_layer(n_latent, dropout=dropout, return_sequences=True)
+        decoder_output = decoder(decoder_input, initial_state=[h, c])
+
+        # attention
+        attention = layers.Attention()([encoder_output, decoder_output])
+        att_dec_input = layers.Concatenate(axis=-1)([decoder_output, attention])
+        att_decoder = layers.TimeDistributed(
+            layers.Dense(n_outputs, activation='softmax')
+        )
+        output = att_decoder(att_dec_input)
+        model = Model(encoder_input, output)
+
     model.compile(loss=loss, optimizer=optimiser, metrics=['mean_squared_error'])
     return model
 

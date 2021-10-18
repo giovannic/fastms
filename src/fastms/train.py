@@ -4,10 +4,20 @@ import json
 from tensorflow.keras.layers import GRU
 from .log import setup_log, logging
 from .loading import create_training_generator
-from .model import create_model, create_ed_model, train_model, model_predict
+from .model import (
+    create_model,
+    create_ed_model,
+    create_attention_model,
+    train_model,
+    model_predict
+)
 from .evaluate import test_model
 from .export import save_model, save_scaler
-from .hyperparameters import default_params, default_ed_params
+from .hyperparameters import (
+    default_params,
+    default_ed_params,
+    default_attention_params
+)
 
 # take I/O from cmdline
 parser = argparse.ArgumentParser(description='Do some magic')
@@ -22,6 +32,7 @@ parser.add_argument('--multigpu', type=bool, default=False)
 parser.add_argument('--GRU', type=bool, default=False)
 parser.add_argument('--truncate', type=int, default=-1)
 parser.add_argument('--ed', type=bool, default=False)
+parser.add_argument('--attention', type=bool, default=False)
 args = parser.parse_args()
 
 setup_log(args.log)
@@ -40,6 +51,8 @@ def train():
 
     if (args.ed):
         params = default_ed_params(samples.n_outputs)
+    elif (args.attention):
+        params = default_attention_params(samples.n_features, samples.n_outputs)
     else:
         params = default_params(samples.n_features, samples.n_outputs)
 
@@ -51,6 +64,8 @@ def train():
 
     if (args.ed):
         model = create_ed_model(n_timesteps = samples.n_timesteps, **params)
+    elif (args.attention):
+        model = create_attention_model(**params)
     else:
         model = create_model(**params)
 
