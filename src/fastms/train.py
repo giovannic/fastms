@@ -62,10 +62,10 @@ def train():
     )
 
     logging.info("predicting")
-    test_model(model, samples.test_generator(params['batch_size']))
+    test_model(model, samples.X_test, samples.y_test, samples.y_scaler)
     predictions = model_predict(
         model,
-        samples.test_generator(params['batch_size']),
+        samples.X_test,
         samples.y_scaler
     )
     truth = samples.truth()

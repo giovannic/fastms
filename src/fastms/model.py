@@ -64,6 +64,6 @@ def train_model(model, gen, epochs, seed, verbose=True):
     set_seed(seed)
     model.fit(gen, epochs=epochs, verbose=verbose)
 
-def model_predict(model, gen, scaler):
-    predictions = model.predict(gen)
+def model_predict(model, X_test, scaler):
+    predictions = model.predict(X_test)
     return scaler.inverse_transform(predictions)
