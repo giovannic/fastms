@@ -19,25 +19,7 @@ from .hyperparameters import (
     default_attention_params
 )
 
-# take I/O from cmdline
-parser = argparse.ArgumentParser(description='Do some magic')
-parser.add_argument('sample_dir', type=str, default='./tp_ibm_interventions')
-parser.add_argument('n', type=int, default=100)
-parser.add_argument('split', type=float, default=.8)
-parser.add_argument('outdir', type=str, default='./')
-parser.add_argument('epochs', type=int, default=100)
-parser.add_argument('seed', type=int, default=42)
-parser.add_argument('--log', type=str, default='WARNING')
-parser.add_argument('--multigpu', type=bool, default=False)
-parser.add_argument('--GRU', type=bool, default=False)
-parser.add_argument('--truncate', type=int, default=-1)
-parser.add_argument('--ed', type=bool, default=False)
-parser.add_argument('--attention', type=bool, default=False)
-args = parser.parse_args()
-
-setup_log(args.log)
-
-def train():
+def train(args):
     logging.info(f"seed set at {args.seed}")
 
     logging.info(f"loading {args.n} samples from {args.sample_dir}")
@@ -99,4 +81,20 @@ def train():
     logging.info("done")
 
 if __name__ == "__main__":
-    train()
+    parser = argparse.ArgumentParser(description='Do some magic')
+    parser.add_argument('sample_dir', type=str, default='./tp_ibm_interventions')
+    parser.add_argument('n', type=int, default=100)
+    parser.add_argument('split', type=float, default=.8)
+    parser.add_argument('outdir', type=str, default='./')
+    parser.add_argument('epochs', type=int, default=100)
+    parser.add_argument('seed', type=int, default=42)
+    parser.add_argument('--log', type=str, default='WARNING')
+    parser.add_argument('--multigpu', type=bool, default=False)
+    parser.add_argument('--GRU', type=bool, default=False)
+    parser.add_argument('--truncate', type=int, default=-1)
+    parser.add_argument('--ed', type=bool, default=False)
+    parser.add_argument('--attention', type=bool, default=False)
+    args = parser.parse_args()
+
+    setup_log(args.log)
+    train(args)

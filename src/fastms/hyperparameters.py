@@ -1,61 +1,98 @@
+import argparse
 from sklearn.model_selection import GridSearchCV
-from tensorflow.keras.layers import LSTM
+from tensorflow.keras.layers import LSTM, GRU
+from tensorflow.keras.wrappers.scikit_learn import KerasRegressor
+from .loading import create_training_generator
+from .model import create_ed_model
+from .log import setup_log, logging
+
+
 
 def default_params(n_features, n_outputs):
     return {
         'optimiser': 'adam',
         'n_layer': [n_features, n_outputs],
-        'dropout': .1,
+        'dropout': .0,
         'loss': 'log_cosh',
         'batch_size': 100,
         'rnn_layer': LSTM
     }
 
-def default_ed_params(n_outputs, n_hidden = [100]):
+def default_ed_params(n_outputs, n_latent = 100):
     return {
         'optimiser': 'adam',
-        'n_layer': n_hidden + [n_outputs],
-        'dropout': .1,
+        'n_outputs': n_outputs,
+        'n_latent': n_latent,
+        'dropout': .0,
         'loss': 'log_cosh',
         'batch_size': 100,
         'rnn_layer': LSTM
     }
-
+    
 def default_attention_params(n_features, n_outputs, n_latent = 100):
     return {
         'optimiser': 'adam',
         'n_latent': n_latent,
         'n_features': n_features,
         'n_outputs': n_outputs,
-        'dropout': .1,
+        'dropout': .0,
         'loss': 'log_cosh',
         'batch_size': 100,
         'rnn_layer': LSTM
     }
 
-def hyperparameters(model):
-    optimisers = ['adam', 'rmsprop']
-    losses = ['mse', 'log_cosh']
-    batches = [50, 100]
-    dropout = [0., .1]
-    epochs = [100]
+def hyperparameters(args):
+    samples = create_training_generator(
+        args.sample_dir,
+        args.n,
+        args.split,
+        args.seed,
+        -1
+    )
+    model = KerasRegressor(create_ed_model)
+
+    optimisers = ['adam']
+    losses = ['log_cosh']
+    batches = [100]
+    dropout = [0., .1, .2]
+    # rnn_layer = [LSTM, GRU]
+    rnn_layer = [LSTM]
+    n_latent = [10, 50, 100]
+    epochs = [args.epochs]
 
     param_grid = dict(
         optimiser=optimisers,
         epochs=epochs,
         loss=losses,
         batch_size=batches,
-        dropout=dropout
+        rnn_layer=rnn_layer,
+        n_latent=n_latent,
+        dropout=dropout,
+        n_timesteps = [samples.n_timesteps],
+        n_outputs = [samples.n_outputs],
+        verbose = [False]
     )
 
     grid = GridSearchCV(estimator=model, param_grid=param_grid)
-    grid_result = grid.fit(X_train, y_train)
+    grid_result = grid.fit(samples.X_train, samples.y_train)
     # summarize results
-    print("Best: %f using %s" % (grid_result.best_score_, grid_result.best_params_))
+    logging.info("Best: %f using %s" % (grid_result.best_score_, grid_result.best_params_))
     means = grid_result.cv_results_['mean_test_score']
     stds = grid_result.cv_results_['std_test_score']
     params = grid_result.cv_results_['params']
     for mean, stdev, param in zip(means, stds, params):
-        print("%f (%f) with: %r" % (mean, stdev, param))
+        logging.info("%f (%f) with: %r" % (mean, stdev, param))
 
-    return grid_result.best_params_
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Do some magic')
+    parser.add_argument('sample_dir', type=str, default='./tp_ibm_interventions')
+    parser.add_argument('n', type=int, default=100)
+    parser.add_argument('split', type=float, default=.8)
+    parser.add_argument('epochs', type=int, default=100)
+    parser.add_argument('seed', type=int, default=42)
+    parser.add_argument('--log', type=str, default='INFO')
+    parser.add_argument('--multigpu', type=bool, default=False)
+    args = parser.parse_args()
+
+    setup_log(args.log)
+    hyperparameters(args)

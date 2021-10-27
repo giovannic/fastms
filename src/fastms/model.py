@@ -22,7 +22,8 @@ def create_model(optimiser, rnn_layer, n_layer, dropout, loss, **kwargs):
 def create_ed_model(
     optimiser,
     rnn_layer,
-    n_layer,
+    n_outputs,
+    n_latent,
     dropout,
     loss,
     n_timesteps,
@@ -33,10 +34,10 @@ def create_ed_model(
       strategy = get_strategy()
     with strategy.scope():
         model = keras.Sequential()
-        model.add(rnn_layer(n_layer[0], dropout=dropout))
+        model.add(rnn_layer(n_latent, dropout=dropout))
         model.add(layers.RepeatVector(n_timesteps))
-        model.add(rnn_layer(n_layer[1], dropout=dropout, return_sequences=True))
-        model.add(layers.TimeDistributed(layers.Dense(n_layer[1])))
+        model.add(rnn_layer(n_outputs, dropout=dropout, return_sequences=True))
+        model.add(layers.TimeDistributed(layers.Dense(n_outputs)))
     model.compile(loss=loss, optimizer=optimiser, metrics=['mean_squared_error'])
     return model
 
