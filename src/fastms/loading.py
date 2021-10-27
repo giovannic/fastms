@@ -111,12 +111,5 @@ class TrainingGenerator(object):
             return d.batch(batch_size)
         return d.take(subsample).batch(batch_size)
 
-    def test_generator(self, batch_size):
-        return Dataset.from_tensor_slices((self.X_test, self.y_test)).shuffle(
-            self.X_test.shape[0],
-            seed=self.seed,
-            reshuffle_each_iteration=True
-        ).batch(batch_size)
-
     def truth(self):
         return self.y_scaler.inverse_transform(self.y_test)
