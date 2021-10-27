@@ -21,6 +21,18 @@ def default_ed_params(n_outputs, n_hidden = [100]):
         'rnn_layer': LSTM
     }
 
+def default_attention_params(n_features, n_outputs, n_latent = 100):
+    return {
+        'optimiser': 'adam',
+        'n_latent': n_latent,
+        'n_features': n_features,
+        'n_outputs': n_outputs,
+        'dropout': .1,
+        'loss': 'log_cosh',
+        'batch_size': 100,
+        'rnn_layer': LSTM
+    }
+
 def hyperparameters(model):
     optimisers = ['adam', 'rmsprop']
     losses = ['mse', 'log_cosh']
