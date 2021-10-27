@@ -133,7 +133,7 @@ setup(
     install_requires=[
         'numpy==1.19.2',
         'pandas',
-        'sklearn',
+        'sklearn==0.21.2',
         'tensorflow==2.4.1',
         'matplotlib',
         'seaborn
