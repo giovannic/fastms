@@ -133,10 +133,11 @@ setup(
     install_requires=[
         'numpy==1.19.2',
         'pandas',
-        'sklearn==0.21.2',
+        'cython',
+        'scikit-learn==0.21.2',
         'tensorflow==2.4.1',
         'matplotlib',
-        'seaborn
+        'seaborn'
     ],
 
     # List additional groups of dependencies here (e.g. development
