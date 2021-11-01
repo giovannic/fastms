@@ -14,8 +14,15 @@ def create_model(optimiser, rnn_layer, n_layer, dropout, loss, **kwargs):
     with strategy.scope():
         model = keras.Sequential()
         model.add(rnn_layer(n_layer[0], dropout=dropout, return_sequences=True))
-        model.add(rnn_layer(n_layer[1], dropout=dropout, return_sequences=True))
-        model.add(layers.TimeDistributed(layers.Dense(n_layer[1])))
+        model.add(rnn_layer(
+            n_layer[1],
+            dropout=dropout,
+            return_sequences=True,
+            recurrent_initializer='glorot_uniform'
+        ))
+        model.add(layers.TimeDistributed(
+            layers.Dense(n_layer[1], activation='tanh')
+        ))
     model.compile(loss=loss, optimizer=optimiser, metrics=['mean_squared_error'])
     return model
 
