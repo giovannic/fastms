@@ -7,16 +7,47 @@ from tensorflow.keras.callbacks import TensorBoard
 from tensorflow.keras.wrappers.scikit_learn import KerasRegressor
 from .attention import BahdanauAttention, LuongAttention, AttentionDecoder
 
-def create_model(optimiser, rnn_layer, n_layer, dropout, loss, **kwargs):
+def create_model(
+    optimiser,
+    rnn_layer,
+    n_layer,
+    n_features,
+    n_outputs,
+    dropout,
+    loss,
+    n_dense_layer,
+    dense_activation,
+    **kwargs
+    ):
     if list_physical_devices('GPU') and kwargs.get('multigpu', False):
       strategy = MirroredStrategy()
     else:  # Use the Default Strategy
       strategy = get_strategy()
     with strategy.scope():
-        model = keras.Sequential()
-        model.add(rnn_layer(n_layer[0], dropout=dropout, return_sequences=True))
-        model.add(rnn_layer(n_layer[1], dropout=dropout, return_sequences=True))
-        model.add(layers.TimeDistributed(layers.Dense(n_layer[1])))
+        input_layer = Input(shape=(None, n_features), dtype='float32')
+        recurrent_layers = [
+            rnn_layer(
+                n,
+                dropout=dropout,
+                return_sequences=True,
+            )
+            for n in n_layer
+        ]
+
+        dense_layers = [
+            layers.TimeDistributed(
+                layers.Dense(
+                    n,
+                    activation=activation
+                )
+            )
+            for n, activation in zip(n_dense_layer, dense_activation)
+        ]
+
+        model = keras.Sequential(
+            [input_layer] + recurrent_layers + dense_layers
+        )
+
     model.compile(loss=loss, optimizer=optimiser, metrics=['mean_squared_error'])
     return model
 

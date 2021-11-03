@@ -9,7 +9,11 @@ from .log import setup_log, logging
 def default_params(n_features, n_outputs):
     return {
         'optimiser': 'adam',
+        'n_features': n_features,
+        'n_outputs': n_outputs,
         'n_layer': [n_features, n_outputs],
+        'n_dense_layer': [n_outputs, n_outputs],
+        'dense_activation': ['relu', 'tanh'],
         'dropout': .0,
         'loss': 'log_cosh',
         'batch_size': 100,
