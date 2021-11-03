@@ -3,9 +3,9 @@ from tensorflow.distribute import MirroredStrategy, get_strategy
 from tensorflow.random import set_seed
 from tensorflow import keras, make_ndarray
 from tensorflow.keras import layers, Model, Input
-from tensorflow.keras.callbacks import TensorBoard
 from tensorflow.keras.wrappers.scikit_learn import KerasRegressor
 from .attention import BahdanauAttention, LuongAttention, AttentionDecoder
+from .log import ExtendedTensorBoard
 
 def create_model(
     optimiser,
@@ -118,7 +118,9 @@ def train_model(model, gen, epochs, seed, verbose=True, log=False):
             gen,
             epochs = epochs,
             verbose = verbose,
-            callbacks = [TensorBoard(log_dir=log, histogram_freq=1)]
+            callbacks = [
+                ExtendedTensorBoard(gen, log_dir=log, histogram_freq=1)
+            ]
         )
     else:
         model.fit(gen, epochs=epochs, verbose=verbose)
