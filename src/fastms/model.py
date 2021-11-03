@@ -17,6 +17,7 @@ def create_model(
     loss,
     n_dense_layer,
     dense_activation,
+    dense_initialiser,
     **kwargs
     ):
     if list_physical_devices('GPU') and kwargs.get('multigpu', False):
@@ -38,10 +39,15 @@ def create_model(
             layers.TimeDistributed(
                 layers.Dense(
                     n,
-                    activation=activation
+                    activation=activation,
+                    kernel_initializer=initialiser
                 )
             )
-            for n, activation in zip(n_dense_layer, dense_activation)
+            for n, activation, initialiser in zip(
+                n_dense_layer,
+                dense_activation,
+                initialiser
+            )
         ]
 
         model = keras.Sequential(
@@ -81,6 +87,8 @@ def create_attention_model(
     n_features,
     dropout,
     loss,
+    dense_activation,
+    dense_initialiser,
     **kwargs
     ):
     if list_physical_devices('GPU') and kwargs.get('multigpu', False):
@@ -103,7 +111,9 @@ def create_attention_model(
             n_latent,
             n_outputs,
             rnn_layer,
-            LuongAttention
+            LuongAttention,
+            dense_activation,
+            dense_initialiser
         )
         output, attention, state = decoder(encoder_input, encoder_output, [h, c])
         model = Model(encoder_input, output)

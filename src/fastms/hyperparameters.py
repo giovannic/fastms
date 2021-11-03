@@ -14,6 +14,7 @@ def default_params(n_features, n_outputs):
         'n_layer': [n_features, n_outputs],
         'n_dense_layer': [n_outputs],
         'dense_activation': ['linear'],
+        'dense_initialiser': ['glorot_normal'],
         'dropout': .0,
         'loss': 'log_cosh',
         'batch_size': 100,
@@ -35,6 +36,8 @@ def default_attention_params(n_features, n_outputs, n_latent = 100):
     return {
         'optimiser': 'adam',
         'n_latent': n_latent,
+        'dense_activation': ['linear'],
+        'dense_initialiser': ['glorot_uniform'],
         'n_features': n_features,
         'n_outputs': n_outputs,
         'dropout': .0,

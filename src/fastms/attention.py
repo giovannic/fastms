@@ -33,19 +33,25 @@ class BahdanauAttention(layers.Layer):
         return context_vector, attention_weights
 
 class AttentionDecoder(layers.Layer):
-    def __init__(self, units, n_outputs, RNNLayer, AttentionLayer):
+    def __init__(self, units, n_outputs, RNNLayer, AttentionLayer, dense_activation, dense_init):
         super().__init__()
         self.rnn_layer = RNNLayer(
             units,
             return_sequences = True,
-            return_state = True,
-            recurrent_initializer='glorot_uniform'
+            return_state = True
         )
         self.attention = AttentionLayer(units)
         self.w1 = layers.Dense(units, activation='tanh', use_bias=False)
-        self.w2 = layers.TimeDistributed(
-            layers.Dense(n_outputs, activation='tanh')
-        )
+        self.dense = [
+            layers.TimeDistributed(
+                layers.Dense(
+                    n_outputs,
+                    activation=activation,
+                    kernel_initializer=initialiser
+                )
+            )
+            for activation, initialiser in zip(dense_activation, dense_init)
+        ]
 
     def call(self, inputs, enc_output, state):
         rnn_output, h, c = self.rnn_layer(inputs, initial_state = state)
@@ -56,6 +62,8 @@ class AttentionDecoder(layers.Layer):
         context_and_rnn_output = concat([context_vector, rnn_output], axis=-1)
 
         attention_vector = self.w1(context_and_rnn_output)
-        output = self.w2(attention_vector)
+        output = attention_vector
+        for layer in self.dense:
+            output = layer(output)
 
         return output, attention_weights, [h, c]
