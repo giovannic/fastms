@@ -3,6 +3,7 @@ from tensorflow.distribute import MirroredStrategy, get_strategy
 from tensorflow.random import set_seed
 from tensorflow import keras, make_ndarray
 from tensorflow.keras import layers, Model, Input
+from tensorflow.keras.callbacks import TensorBoard
 from tensorflow.keras.wrappers.scikit_learn import KerasRegressor
 from .attention import BahdanauAttention, LuongAttention, AttentionDecoder
 
@@ -79,9 +80,17 @@ def create_attention_model(
     model.compile(loss=loss, optimizer=optimiser, metrics=['mean_squared_error'])
     return model
 
-def train_model(model, gen, epochs, seed, verbose=True):
+def train_model(model, gen, epochs, seed, verbose=True, log=False):
     set_seed(seed)
-    model.fit(gen, epochs=epochs, verbose=verbose)
+    if log:
+        model.fit(
+            gen,
+            epochs = epochs,
+            verbose = verbose,
+            callbacks = [TensorBoard(log_dir=log, histogram_freq=1)]
+        )
+    else:
+        model.fit(gen, epochs=epochs, verbose=verbose)
 
 def model_predict(model, X_test, scaler):
     predictions = model.predict(X_test)

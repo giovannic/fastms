@@ -55,7 +55,8 @@ def train(args):
         model,
         samples.train_generator(params['batch_size']),
         args.epochs,
-        args.seed
+        args.seed,
+        log=args.fit_log
     )
 
     logging.info("predicting")
@@ -94,6 +95,7 @@ if __name__ == "__main__":
     parser.add_argument('--truncate', type=int, default=-1)
     parser.add_argument('--ed', type=bool, default=False)
     parser.add_argument('--attention', type=bool, default=False)
+    parser.add_argument('--fit_log', type=str, default=False)
     args = parser.parse_args()
 
     setup_log(args.log)
