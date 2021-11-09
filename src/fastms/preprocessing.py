@@ -11,14 +11,13 @@ def format_runs(runs):
     # Time varying parameters
     period = y.shape[1]
     X = np.repeat(X[:, None, :], period, axis=1)
-    if 'timed_parameters' in runs[0].keys():
-        X = np.concatenate(
-            [
-                X,
-                [entry['timed_parameters'] for entry in runs]
-            ],
-            axis = 2
-        )
+    X = np.concatenate(
+        [
+            X,
+            [entry['timed_parameters'] for entry in runs]
+        ],
+        axis = 2
+    )
 
     return (X, y)
 
