@@ -1,10 +1,10 @@
 import json
 import pickle
-from tensorflow.keras.models import load_model
+from tensorflow.keras.models import load_model as load_keras_model
 import numpy as np
 
 def load_model(path):
-    return load_model(path)
+    return load_keras_model(path)
 
 def load_spec(path):
     with open(path, 'rb') as f:
