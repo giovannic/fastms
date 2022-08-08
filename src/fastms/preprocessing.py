@@ -9,17 +9,9 @@ def format_runs(runs):
     y = np.stack([entry['outputs'] for entry in runs])
 
     # Time varying parameters
-    period = y.shape[1]
-    X = np.repeat(X[:, None, :], period, axis=1)
-    X = np.concatenate(
-        [
-            X,
-            [entry['timed_parameters'] for entry in runs]
-        ],
-        axis = 2
-    )
+    X_seq = np.stack([entry['timed_parameters'] for entry in runs])
 
-    return (X, y)
+    return (X, X_seq, y)
 
 class GlobalScaler(TransformerMixin):
     def __init__(self, **kwargs):

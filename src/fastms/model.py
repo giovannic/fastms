@@ -4,6 +4,7 @@ from tensorflow.random import set_seed
 from tensorflow import keras, make_ndarray
 from tensorflow.keras import layers, Model, Input
 from tensorflow.keras.wrappers.scikit_learn import KerasRegressor
+import tensorflow.keras.backend as K
 from .attention import BahdanauAttention, LuongAttention, AttentionDecoder
 from .log import ExtendedTensorBoard
 
@@ -11,8 +12,8 @@ def create_model(
     optimiser,
     rnn_layer,
     n_layer,
-    n_features,
-    n_outputs,
+    n_static_features,
+    n_seq_features,
     dropout,
     loss,
     n_dense_layer,
@@ -25,36 +26,46 @@ def create_model(
     else:  # Use the Default Strategy
       strategy = get_strategy()
     with strategy.scope():
-        input_layer = Input(shape=(None, n_features), dtype='float32')
-        recurrent_layers = [
-            rnn_layer(
+        static_input = Input(shape=n_static_features, dtype='float32')
+        seq_input = Input(shape=(None, n_seq_features), dtype='float32')
+        recurrent_model = seq_input
+        for n in n_layer:
+            recurrent_model = rnn_layer(
                 n,
                 dropout=dropout,
                 return_sequences=True,
-            )
-            for n in n_layer
-        ]
+            )(recurrent_model)
 
-        dense_layers = [
-            layers.TimeDistributed(
+        def repeat(args):
+            return layers.RepeatVector(K.shape(args[1])[1])(args[0])
+
+        repeated_static_input = layers.Lambda(repeat)([static_input, seq_input])
+        combined_inputs = layers.Concatenate()(
+            [recurrent_model, repeated_static_input]
+        )
+
+        model_output = combined_inputs
+        dense_specs = zip(
+            n_dense_layer,
+            dense_activation,
+            dense_initialiser
+        )
+        for n, activation, initialiser in dense_specs:
+            model_output = layers.TimeDistributed(
                 layers.Dense(
                     n,
                     activation=activation,
                     kernel_initializer=initialiser
                 )
-            )
-            for n, activation, initialiser in zip(
-                n_dense_layer,
-                dense_activation,
-                initialiser
-            )
-        ]
+            )(model_output)
 
-        model = keras.Sequential(
-            [input_layer] + recurrent_layers + dense_layers
+        model = keras.Model(
+            inputs = [static_input, seq_input],
+            outputs = [model_output]
         )
 
     model.compile(loss=loss, optimizer=optimiser, metrics=['mean_squared_error'])
+    print(model.summary())
     return model
 
 def create_ed_model(
@@ -135,6 +146,6 @@ def train_model(model, gen, epochs, seed, verbose=True, log=False):
     else:
         model.fit(gen, epochs=epochs, verbose=verbose)
 
-def model_predict(model, X_test, scaler):
-    predictions = model.predict(X_test)
+def model_predict(model, X_test, X_seq_test, scaler):
+    predictions = model.predict({'input_1': X_test, 'input_2': X_seq_test})
     return scaler.inverse_transform(predictions)

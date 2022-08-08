@@ -4,8 +4,8 @@ from tensorflow.keras.wrappers.scikit_learn import KerasRegressor
 from sklearn.metrics import mean_squared_error
 from .log import logging
 
-def test_model(model, X_test, y_test, y_scaler):
-    predictions = model.predict(X_test)
+def test_model(model, X_test, X_seq_test, y_test, y_scaler):
+    predictions = model.predict({'input_1': X_test, 'input_2': X_seq_test})
     error = mean_squared_error(
         predictions.reshape(predictions.shape[0], -1),
         y_test.reshape(y_test.shape[0], -1)

@@ -5,8 +5,9 @@ import math
 import multiprocessing
 from tensorflow.data import Dataset
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 import numpy as np
-from .preprocessing import format_runs, GlobalScaler, SequenceScaler
+from .preprocessing import format_runs, SequenceScaler
 import logging
 
 ENTRIES_PER_PATH = 10
@@ -50,8 +51,9 @@ def load_samples(indir, start, end, truncate):
     with multiprocessing.Pool(ncpus) as p:
         dataset = p.map(format_runs, chunks(runs, n_chunks))
 
-    X, y = zip(*dataset)
+    X, X_seq, y = zip(*dataset)
     X = np.concatenate(X)
+    X_seq = np.concatenate(X_seq)
     y = np.concatenate(y)
     start_index = start % ENTRIES_PER_PATH
 
@@ -60,7 +62,7 @@ def load_samples(indir, start, end, truncate):
     else:
         end_index = end_path * ENTRIES_PER_PATH + end % ENTRIES_PER_PATH
 
-    return X[start_index:end_index], y[start_index:end_index]
+    return X[start_index:end_index], X_seq[start_index:end_index], y[start_index:end_index]
 
 def create_training_generator(*args):
     return TrainingGenerator(*args)
@@ -69,6 +71,7 @@ class TrainingGenerator(object):
 
     split = .8
     X_scaler = None
+    X_seq_scaler = None
     y_scaler = None
     n_features = None
     n_outputs = None
@@ -82,27 +85,45 @@ class TrainingGenerator(object):
         -- seed for the sample allocation
         -- truncate whether to truncate the timeseries
         """
-        X, y = load_samples(indir, 0, n, truncate)
-        self.n_features = X.shape[2]
+        X, X_seq, y = load_samples(indir, 0, n, truncate)
+        self.n_static_features = X.shape[1]
+        self.n_seq_features = X_seq.shape[2]
         self.n_outputs = y.shape[2]
         self.n_timesteps = y.shape[1]
         self.seed = seed
 
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y,
+        (
+            X_train,
+            X_test,
+            X_seq_train,
+            X_seq_test,
+            y_train,
+            y_test
+        ) = train_test_split(
+            X,
+            X_seq,
+            y,
             train_size=split,
             random_state=self.seed
         )
-        self.X_scaler = SequenceScaler().fit(X_train)
-        self.y_scaler = GlobalScaler().fit(y_train)
+        self.X_scaler = StandardScaler().fit(X_train)
+        self.X_seq_scaler = SequenceScaler().fit(X_seq_train)
+        self.y_scaler = SequenceScaler().fit(y_train)
         self.X_train = self.X_scaler.transform(X_train)
         self.X_test = self.X_scaler.transform(X_test)
+        self.X_seq_train = self.X_seq_scaler.transform(X_seq_train)
+        self.X_seq_test = self.X_seq_scaler.transform(X_seq_test)
         self.y_train = self.y_scaler.transform(y_train)
         self.y_test = self.y_scaler.transform(y_test)
         logging.info("data processed")
 
     def train_generator(self, batch_size, subsample=None):
-        d = Dataset.from_tensor_slices((self.X_train, self.y_train)).shuffle(
+        d = Dataset.from_tensor_slices(
+            (
+                {'input_1': self.X_train, 'input_2': self.X_seq_train},
+                self.y_train
+            )
+        ).shuffle(
             self.X_train.shape[0],
             seed=self.seed,
             reshuffle_each_iteration=True

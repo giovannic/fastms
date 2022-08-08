@@ -36,7 +36,11 @@ def train(args):
     elif (args.attention):
         params = default_attention_params(samples.n_features, samples.n_outputs)
     else:
-        params = default_params(samples.n_features, samples.n_outputs)
+        params = default_params(
+            samples.n_static_features,
+            samples.n_seq_features,
+            samples.n_outputs
+        )
 
     params['multigpu'] = args.multigpu
     if (args.GRU):
@@ -60,10 +64,11 @@ def train(args):
     )
 
     logging.info("predicting")
-    test_model(model, samples.X_test, samples.y_test, samples.y_scaler)
+    test_model(model, samples.X_test, samples.X_seq_test, samples.y_test, samples.y_scaler)
     predictions = model_predict(
         model,
         samples.X_test,
+        samples.X_seq_test,
         samples.y_scaler
     )
     truth = samples.truth()

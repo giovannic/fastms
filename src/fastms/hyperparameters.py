@@ -6,12 +6,12 @@ from .loading import create_training_generator
 from .model import create_model, create_ed_model, create_attention_model
 from .log import setup_log, logging
 
-def default_params(n_features, n_outputs):
+def default_params(n_static_features, n_seq_features, n_outputs):
     return {
         'optimiser': 'adam',
-        'n_features': n_features,
-        'n_outputs': n_outputs,
-        'n_layer': [n_features, n_outputs],
+        'n_static_features': n_static_features,
+        'n_seq_features': n_seq_features,
+        'n_layer': [n_seq_features, n_seq_features + 10],
         'n_dense_layer': [n_outputs],
         'dense_activation': ['linear'],
         'dense_initialiser': ['glorot_normal'],
