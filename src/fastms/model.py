@@ -28,7 +28,13 @@ def create_model(
     with strategy.scope():
         static_input = Input(shape=n_static_features, dtype='float32')
         seq_input = Input(shape=(None, n_seq_features), dtype='float32')
-        recurrent_model = seq_input
+        def repeat(args):
+            return layers.RepeatVector(K.shape(args[1])[1])(args[0])
+
+        repeated_static_input = layers.Lambda(repeat)([static_input, seq_input])
+        recurrent_model = layers.Concatenate()(
+            [seq_input, repeated_static_input]
+        )
         for n in n_layer:
             recurrent_model = rnn_layer(
                 n,
@@ -36,15 +42,7 @@ def create_model(
                 return_sequences=True,
             )(recurrent_model)
 
-        def repeat(args):
-            return layers.RepeatVector(K.shape(args[1])[1])(args[0])
-
-        repeated_static_input = layers.Lambda(repeat)([static_input, seq_input])
-        combined_inputs = layers.Concatenate()(
-            [recurrent_model, repeated_static_input]
-        )
-
-        model_output = combined_inputs
+        model_output = recurrent_model
         dense_specs = zip(
             n_dense_layer,
             dense_activation,

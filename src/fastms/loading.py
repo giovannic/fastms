@@ -14,7 +14,11 @@ ENTRIES_PER_PATH = 10
 
 def load_json(path):
     with open(path, 'r') as f:
-        return json.load(f)
+        try:
+            return json.load(f)
+        except:
+            print(path)
+            return []
 
 def chunks(lst, n):
     """Yield successive n-sized chunks from lst."""
