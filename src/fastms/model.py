@@ -46,7 +46,7 @@ def create_model(
             for n, activation, initialiser in zip(
                 n_dense_layer,
                 dense_activation,
-                initialiser
+                dense_initialiser
             )
         ]
 
