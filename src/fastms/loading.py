@@ -117,10 +117,13 @@ class TrainingGenerator(object):
         self.y_test = self.y_scaler.transform(y_test)
         logging.info("data processed")
 
-    def train_generator(self, batch_size, subsample=None):
+    def train_generator(self, batch_size, subsample=None, seed=None):
+        if seed is None:
+            seed = self.seed
+
         d = Dataset.from_tensor_slices(
             (
-                {'input_1': self.X_train, 'input_2': self.X_seq_train},
+                (self.X_train, self.X_seq_train),
                 self.y_train
             )
         ).shuffle(

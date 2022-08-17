@@ -1,9 +1,8 @@
 from tensorflow.config import list_physical_devices
 from tensorflow.distribute import MirroredStrategy, get_strategy
 from tensorflow.random import set_seed
-from tensorflow import keras, make_ndarray
+from tensorflow import keras
 from tensorflow.keras import layers, Model, Input
-from tensorflow.keras.wrappers.scikit_learn import KerasRegressor
 import tensorflow.keras.backend as K
 from .attention import BahdanauAttention, LuongAttention, AttentionDecoder
 from .log import ExtendedTensorBoard
@@ -28,7 +27,15 @@ def create_model(
     with strategy.scope():
         static_input = Input(shape=n_static_features, dtype='float32')
         seq_input = Input(shape=(None, n_seq_features), dtype='float32')
-        recurrent_model = seq_input
+
+        def repeat(args):
+            return layers.RepeatVector(K.shape(args[1])[1])(args[0])
+
+        repeated_static_input = layers.Lambda(repeat)([static_input, seq_input])
+        combined_inputs = layers.Concatenate()(
+            [seq_input, repeated_static_input]
+        )
+        recurrent_model = combined_inputs
         for n in n_layer:
             recurrent_model = rnn_layer(
                 n,
@@ -36,15 +43,7 @@ def create_model(
                 return_sequences=True,
             )(recurrent_model)
 
-        def repeat(args):
-            return layers.RepeatVector(K.shape(args[1])[1])(args[0])
-
-        repeated_static_input = layers.Lambda(repeat)([static_input, seq_input])
-        combined_inputs = layers.Concatenate()(
-            [recurrent_model, repeated_static_input]
-        )
-
-        model_output = combined_inputs
+        model_output = recurrent_model
         dense_specs = zip(
             n_dense_layer,
             dense_activation,
@@ -59,7 +58,7 @@ def create_model(
                 )
             )(model_output)
 
-        model = keras.Model(
+        model = Model(
             inputs = [static_input, seq_input],
             outputs = [model_output]
         )
@@ -147,5 +146,5 @@ def train_model(model, gen, epochs, seed, verbose=True, log=False):
         model.fit(gen, epochs=epochs, verbose=verbose)
 
 def model_predict(model, X_test, X_seq_test, scaler):
-    predictions = model.predict({'input_1': X_test, 'input_2': X_seq_test})
+    predictions = model.predict((X_test, X_seq_test))
     return scaler.inverse_transform(predictions)
