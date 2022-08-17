@@ -11,7 +11,7 @@ def default_params(n_static_features, n_seq_features, n_outputs):
         'optimiser': 'adam',
         'n_static_features': n_static_features,
         'n_seq_features': n_seq_features,
-        'n_layer': [n_seq_features, n_seq_features + 10],
+        'n_layer': [n_seq_features + n_static_features, n_outputs],
         'n_dense_layer': [n_outputs],
         'n_outputs': n_outputs,
         'dense_activation': ['linear'],
