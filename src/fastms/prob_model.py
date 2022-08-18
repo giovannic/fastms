@@ -8,6 +8,7 @@ import tensorflow as tf
 EPSILON = 1e-6
 
 class GaussianLoss(losses.Loss):
+    """NOTE: Not serializable"""
 
     def __init__(self, sigma, **kwargs):
         self.sigma = sigma
@@ -58,8 +59,10 @@ class GaussianLayer(layers.Layer):
         output_sig_pos = K.log(1 + K.exp(output_sig)) + EPSILON
         return [output_mu, output_sig_pos]
 
-    def compute_output_shape(self, input_shape):
-        return [(input_shape[0], self.output_dim), (input_shape[0], self.output_dim)]
+    def get_config(self):
+        config = super(GaussianLayer, self).get_config()
+        config.update({ 'output_dim': self.output_dim })
+        return config
 
 class EnsemblingLayer(layers.Layer):
 
@@ -76,6 +79,11 @@ class EnsemblingLayer(layers.Layer):
             ) - tf.square(mu)
         )
         return [mu, sigma]
+
+    def get_config(self):
+        config = super(EnsemblingLayer, self).get_config()
+        config.update({ 'output_dim': self.output_dim })
+        return config
 
 def create_prob_model(
     optimiser,

@@ -1,10 +1,17 @@
 import json
 import pickle
 from tensorflow.keras.models import load_model as load_keras_model
+from tensorflow.keras.utils import custom_object_scope
 import numpy as np
+from .prob_model import GaussianLayer, EnsemblingLayer
 
 def load_model(path):
-    return load_keras_model(path)
+    custom_objects = {
+        'GaussianLayer': GaussianLayer,
+        'EnsemblingLayer': EnsemblingLayer
+    }
+    with custom_object_scope(custom_objects):
+        return load_keras_model(path, compile=False)
 
 def load_spec(path):
     with open(path, 'rb') as f:
