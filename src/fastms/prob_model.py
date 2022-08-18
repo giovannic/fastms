@@ -85,6 +85,11 @@ class EnsemblingLayer(layers.Layer):
         config.update({ 'output_dim': self.output_dim })
         return config
 
+class RepeatLayer(layers.Layer):
+
+    def call(self, inputs):
+        return layers.RepeatVector(K.shape(inputs[1])[1])(inputs[0])
+
 def create_prob_model(
     optimiser,
     rnn_layer,
@@ -107,10 +112,8 @@ def create_prob_model(
         static_input = Input(shape=n_static_features, dtype='float32')
         seq_input = Input(shape=(None, n_seq_features), dtype='float32')
 
-        def repeat(args):
-            return layers.RepeatVector(K.shape(args[1])[1])(args[0])
+        repeated_static_input = RepeatLayer()([static_input, seq_input])
 
-        repeated_static_input = layers.Lambda(repeat)([static_input, seq_input])
         combined_inputs = layers.Concatenate()(
             [seq_input, repeated_static_input]
         )

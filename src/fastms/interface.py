@@ -3,12 +3,13 @@ import pickle
 from tensorflow.keras.models import load_model as load_keras_model
 from tensorflow.keras.utils import custom_object_scope
 import numpy as np
-from .prob_model import GaussianLayer, EnsemblingLayer
+from .prob_model import GaussianLayer, EnsemblingLayer, RepeatLayer
 
 def load_model(path):
     custom_objects = {
         'GaussianLayer': GaussianLayer,
-        'EnsemblingLayer': EnsemblingLayer
+        'EnsemblingLayer': EnsemblingLayer,
+        'RepeatLayer': RepeatLayer
     }
     with custom_object_scope(custom_objects):
         return load_keras_model(path, compile=False)
