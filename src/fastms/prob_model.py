@@ -4,6 +4,7 @@ from tensorflow.keras import layers, Model, Input, losses
 from tensorflow.python.framework.ops import disable_eager_execution
 import tensorflow.keras.backend as K
 import tensorflow as tf
+from .model import RepeatLayer
 
 EPSILON = 1e-6
 
@@ -84,11 +85,6 @@ class EnsemblingLayer(layers.Layer):
         config = super(EnsemblingLayer, self).get_config()
         config.update({ 'output_dim': self.output_dim })
         return config
-
-class RepeatLayer(layers.Layer):
-
-    def call(self, inputs):
-        return layers.RepeatVector(K.shape(inputs[1])[1])(inputs[0])
 
 def create_prob_model(
     optimiser,
