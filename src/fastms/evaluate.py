@@ -21,15 +21,15 @@ def test_model(model, X_test, X_seq_test, y_test, y_scaler):
     logging.info(f'actual error: {actual_error}')
 
 def test_prob_model(model, X_test, X_seq_test, y_test, y_scaler, n):
-    mu, sigma = model.predict((X_test, X_seq_test) * n)
+    predictions = model.predict((X_test, X_seq_test) * n)
     error = mean_squared_error(
-        mu.reshape(mu.shape[0], -1),
+        predictions.reshape(predictions.shape[0], -1),
         y_test.reshape(y_test.shape[0], -1)
     )
     logging.info(f'pre-scaling error: {error}')
     actual_error = mean_squared_error(
-        y_scaler.inverse_transform(mu).reshape(
-            mu.shape[0],
+        y_scaler.inverse_transform(predictions).reshape(
+            predictions.shape[0],
             -1
         ),
         y_scaler.inverse_transform(y_test).reshape(y_test.shape[0], -1)

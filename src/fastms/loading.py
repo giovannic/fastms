@@ -116,6 +116,8 @@ class TrainingGenerator(object):
             self.y_scaler = SequenceScaler().fit(y_train)
         else:
             self.y_scaler = DummyScaler().fit(y_train)
+            if (y_train < 0).any() or (y_train > 1).any():
+                raise Exception('y_train is not between 0 and 1')
         self.y_train = self.y_scaler.transform(y_train)
         self.y_test = self.y_scaler.transform(y_test)
         logging.info("data processed")

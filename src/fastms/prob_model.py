@@ -1,7 +1,6 @@
 from tensorflow.config import list_physical_devices
 from tensorflow.distribute import MirroredStrategy, get_strategy
 from tensorflow.keras import layers, Model, Input, losses
-from tensorflow.python.framework.ops import disable_eager_execution
 import tensorflow.keras.backend as K
 import tensorflow as tf
 import tensorflow_probability as tfp
@@ -10,8 +9,26 @@ from .model import RepeatLayer
 
 EPSILON = 1e-6
 
-def negative_log_likelihood(y_true, y_pred):
-    return -y_pred.log_prob(y_true)
+@tf.function
+def beta_negative_log_likelihood(y_true, y_pred):
+    '''
+    beta distribution is only valid between 0 and 1 exclusive
+    so we softclip
+    '''
+    softclip = tfp.bijectors.SoftClip(0, 1)
+    return -y_pred.log_prob(softclip(y_true))
+
+def beta_distribution_from_tensor(t, boundary):
+    '''
+    splits the tensor in half at `boundary` for the 0 and 1 concentration
+    parameters
+    '''
+    return tfd.Beta(
+        tf.math.softplus(t[..., :boundary]),
+        tf.math.softplus(t[..., boundary:]),
+        validate_args=True,
+        allow_nan_stats=False
+    )
 
 class EnsemblingLayer(layers.Layer):
 
@@ -48,7 +65,6 @@ def create_prob_model(
     dense_initialiser,
     **kwargs
     ):
-    disable_eager_execution()
     if list_physical_devices('GPU') and kwargs.get('multigpu', False):
       strategy = MirroredStrategy()
     else:  # Use the Default Strategy
@@ -90,12 +106,9 @@ def create_prob_model(
                 )
             )(model_output)
 
-        # make the outputs positive for the beta distribution
-        model_output = tfp.bijectors.Softplus()(model_output)
-
         # apply a beta distribution
         prob = tfp.layers.DistributionLambda(
-            lambda i: tfd.Beta(i[..., :n_outputs],i[..., n_outputs:]),
+            lambda t: beta_distribution_from_tensor(t, n_outputs),
             convert_to_tensor_fn = lambda d: d.mean()
         )(model_output)
 
@@ -106,7 +119,7 @@ def create_prob_model(
 
         # compile a negative log likelihood, but output mse too
         model.compile(
-            loss=negative_log_likelihood,
+            loss=beta_negative_log_likelihood,
             optimizer=optimiser,
             metrics=['mean_squared_error']
         )
@@ -133,9 +146,8 @@ def create_ensemble(models, n_static_features, n_seq_features):
         outputs = [mu, sigma]
     )
     print(model.summary())
-    tf.keras.utils.plot_model(model, show_shapes=True)
     return model
 
 def prob_model_predict(model, X_test, X_seq_test, scaler, n):
-    mu, sigma = model.predict((X_test, X_seq_test) * n)
-    return scaler.inverse_transform(mu)
+    predictions = model.predict((X_test, X_seq_test) * n)
+    return scaler.inverse_transform(predictions)
