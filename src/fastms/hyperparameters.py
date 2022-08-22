@@ -14,8 +14,8 @@ def default_params(n_static_features, n_seq_features, n_outputs):
         'n_layer': [n_seq_features + n_static_features, n_outputs],
         'n_dense_layer': [n_outputs],
         'n_outputs': n_outputs,
-        'dense_activation': ['linear'],
-        'dense_initialiser': ['glorot_normal'],
+        'dense_activation': 'linear',
+        'dense_initialiser': 'glorot_normal',
         'dropout': .0,
         'loss': 'log_cosh',
         'batch_size': 100,
@@ -28,14 +28,17 @@ def default_prob_params(n_static_features, n_seq_features, n_outputs):
         'n_static_features': n_static_features,
         'n_seq_features': n_seq_features,
         'n_layer': [n_seq_features + n_static_features, n_outputs],
-        'n_dense_layer': [n_outputs * 2],
+        'n_dense_layer': [n_outputs],
+        'n_dense_prob_layer': [n_outputs],
         'n_outputs': n_outputs,
-        'dense_activation': ['linear'],
-        'dense_initialiser': ['glorot_normal'],
+        'dense_activation': 'linear',
+        'dense_initialiser': 'glorot_normal',
         'dropout': .0,
         'loss': 'log_cosh',
         'batch_size': 100,
-        'rnn_layer': LSTM
+        'rnn_layer': LSTM,
+        'regulariser': None,
+        'prob': 'normal'
     }
 
 

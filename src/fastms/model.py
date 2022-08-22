@@ -48,17 +48,12 @@ def create_model(
             )(recurrent_model)
 
         model_output = recurrent_model
-        dense_specs = zip(
-            n_dense_layer,
-            dense_activation,
-            dense_initialiser
-        )
-        for n, activation, initialiser in dense_specs:
+        for n in n_dense_layer:
             model_output = layers.TimeDistributed(
                 layers.Dense(
                     n,
-                    activation=activation,
-                    kernel_initializer=initialiser
+                    activation=dense_activation,
+                    kernel_initializer=dense_initialiser
                 )
             )(model_output)
 

@@ -7,7 +7,9 @@ import tensorflow_probability as tfp
 tfd = tfp.distributions
 from .model import RepeatLayer
 
-EPSILON = 1e-6
+@tf.function
+def normal_negative_log_likelihood(y_true, y_pred):
+    return -y_pred.log_prob(y_true)
 
 @tf.function
 def beta_negative_log_likelihood(y_true, y_pred):
@@ -17,6 +19,18 @@ def beta_negative_log_likelihood(y_true, y_pred):
     '''
     softclip = tfp.bijectors.SoftClip(0, 1)
     return -y_pred.log_prob(softclip(y_true))
+
+def normal_distribution_from_tensor(t, boundary):
+    '''
+    splits the tensor in half at `boundary` for the 0 and 1 concentration
+    parameters
+    '''
+    return tfd.Normal(
+        t[..., :boundary],
+        tf.math.softplus(t[..., boundary:]),
+        validate_args=True,
+        allow_nan_stats=False
+    )
 
 def beta_distribution_from_tensor(t, boundary):
     '''
@@ -63,6 +77,9 @@ def create_prob_model(
     n_outputs,
     dense_activation,
     dense_initialiser,
+    n_dense_prob_layer,
+    prob,
+    regulariser,
     **kwargs
     ):
     if list_physical_devices('GPU') and kwargs.get('multigpu', False):
@@ -85,32 +102,78 @@ def create_prob_model(
             recurrent_model = rnn_layer(
                 n,
                 dropout=dropout,
-                return_sequences=True,
+                kernel_regularizer=regulariser,
+                return_sequences=True
             )(recurrent_model)
 
         model_output = recurrent_model
 
         # apply dense layers
-        dense_specs = zip(
-            n_dense_layer,
-            dense_activation,
-            dense_initialiser
-        )
-
-        for n, activation, initialiser in dense_specs:
+        for n in n_dense_layer:
             model_output = layers.TimeDistributed(
                 layers.Dense(
                     n,
-                    activation=activation,
-                    kernel_initializer=initialiser
+                    activation=dense_activation,
+                    kernel_initializer=dense_initialiser,
+                    kernel_regularizer=regulariser
                 )
             )(model_output)
 
-        # apply a beta distribution
-        prob = tfp.layers.DistributionLambda(
-            lambda t: beta_distribution_from_tensor(t, n_outputs),
-            convert_to_tensor_fn = lambda d: d.mean()
-        )(model_output)
+
+        if prob == 'beta':
+            alpha = beta = model_output
+
+            for n in n_dense_prob_layer:
+                alpha = layers.Dense(
+                    n,
+                    activation=dense_activation,
+                    kernel_initializer=dense_initialiser,
+                    kernel_regularizer=regulariser
+                )(alpha)
+
+                beta = layers.Dense(
+                    n,
+                    activation=dense_activation,
+                    kernel_initializer=dense_initialiser,
+                    kernel_regularizer=regulariser
+                )(beta)
+
+            prob_params = layers.Concatenate()([alpha, beta])
+
+            # apply a beta distribution
+            prob = tfp.layers.DistributionLambda(
+                lambda t: beta_distribution_from_tensor(t, n_outputs),
+                convert_to_tensor_fn = lambda d: d.mean()
+            )(prob_params)
+
+            loss = beta_negative_log_likelihood
+        elif prob == 'normal':
+            mu = sigma = model_output
+            for n in n_dense_prob_layer:
+                mu = layers.Dense(
+                    n,
+                    activation=dense_activation,
+                    kernel_initializer=dense_initialiser
+                )(mu)
+
+                sigma = layers.Dense(
+                    n,
+                    activation=dense_activation,
+                    kernel_initializer=dense_initialiser
+                )(sigma)
+
+            prob_params = layers.Concatenate()([mu, sigma])
+
+            # apply a beta distribution
+            prob = tfp.layers.DistributionLambda(
+                lambda t: normal_distribution_from_tensor(t, n_outputs),
+                convert_to_tensor_fn = lambda d: d.mean()
+            )(prob_params)
+
+            loss = normal_negative_log_likelihood
+        else:
+            raise ValueError(f'Unknown value of prob {prob}')
+
 
         model = Model(
             inputs = [static_input, seq_input],
@@ -119,7 +182,7 @@ def create_prob_model(
 
         # compile a negative log likelihood, but output mse too
         model.compile(
-            loss=beta_negative_log_likelihood,
+            loss=loss,
             optimizer=optimiser,
             metrics=['mean_squared_error']
         )
