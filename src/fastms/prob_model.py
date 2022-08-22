@@ -4,66 +4,14 @@ from tensorflow.keras import layers, Model, Input, losses
 from tensorflow.python.framework.ops import disable_eager_execution
 import tensorflow.keras.backend as K
 import tensorflow as tf
+import tensorflow_probability as tfp
+tfd = tfp.distributions
 from .model import RepeatLayer
 
 EPSILON = 1e-6
 
-class GaussianLoss(losses.Loss):
-    """NOTE: Not serializable"""
-
-    def __init__(self, sigma, **kwargs):
-        self.sigma = sigma
-        super(GaussianLoss, self).__init__(**kwargs)
-
-    def call(self, y_true, y_pred):
-        return tf.math.reduce_mean(
-            0.5 * tf.math.log(self.sigma) +
-            0.5 * tf.math.divide(tf.math.square(y_true - y_pred), self.sigma)
-        ) + EPSILON
-
-class GaussianLayer(layers.Layer):
-
-    def __init__(self, output_dim, **kwargs):
-        self.output_dim = output_dim
-        super(GaussianLayer, self).__init__(**kwargs)
-
-    def build(self, input_shape):
-        self.mu_kernel = self.add_weight(
-          name='mu_kernel', 
-          shape=(input_shape[-1], self.output_dim),
-          initializer='glorot_normal',
-          trainable=True
-        )
-        self.sig_kernel = self.add_weight(
-            name='sig_kernel', 
-            shape=(input_shape[-1], self.output_dim),
-            initializer='glorot_normal',
-            trainable=True
-        )
-        self.mu_bias = self.add_weight(
-            name='mu_bias',
-            shape=(self.output_dim, ),
-            initializer='glorot_normal',
-            trainable=True
-        )
-        self.sig_bias = self.add_weight(
-            name='sig_bias',
-            shape=(self.output_dim, ),
-            initializer='glorot_normal',
-            trainable=True
-        )
-        super(GaussianLayer, self).build(input_shape) 
-
-    def call(self, x):
-        output_mu  = K.dot(x, self.mu_kernel) + self.mu_bias
-        output_sig = K.dot(x, self.sig_kernel) + self.sig_bias
-        output_sig_pos = K.log(1 + K.exp(output_sig)) + EPSILON
-        return [output_mu, output_sig_pos]
-
-    def get_config(self):
-        config = super(GaussianLayer, self).get_config()
-        config.update({ 'output_dim': self.output_dim })
-        return config
+def negative_log_likelihood(y_true, y_pred):
+    return -y_pred.log_prob(y_true)
 
 class EnsemblingLayer(layers.Layer):
 
@@ -95,6 +43,7 @@ def create_prob_model(
     dropout,
     loss,
     n_dense_layer,
+    n_outputs,
     dense_activation,
     dense_initialiser,
     **kwargs
@@ -108,11 +57,13 @@ def create_prob_model(
         static_input = Input(shape=n_static_features, dtype='float32')
         seq_input = Input(shape=(None, n_seq_features), dtype='float32')
 
+        # combine static and sequential outputs
         repeated_static_input = RepeatLayer()([static_input, seq_input])
-
         combined_inputs = layers.Concatenate()(
             [seq_input, repeated_static_input]
         )
+
+        # apply sequential layers
         recurrent_model = combined_inputs
         for n in n_layer:
             recurrent_model = rnn_layer(
@@ -123,11 +74,13 @@ def create_prob_model(
 
         model_output = recurrent_model
 
+        # apply dense layers
         dense_specs = zip(
             n_dense_layer,
             dense_activation,
             dense_initialiser
         )
+
         for n, activation, initialiser in dense_specs:
             model_output = layers.TimeDistributed(
                 layers.Dense(
@@ -137,23 +90,31 @@ def create_prob_model(
                 )
             )(model_output)
 
-        mu, sigma = GaussianLayer(n_dense_layer[-1], name='probs')(model_output)
+        # make the outputs positive for the beta distribution
+        model_output = tfp.bijectors.Softplus()(model_output)
+
+        # apply a beta distribution
+        prob = tfp.layers.DistributionLambda(
+            lambda i: tfd.Beta(i[..., :n_outputs],i[..., n_outputs:]),
+            convert_to_tensor_fn = lambda d: d.mean()
+        )(model_output)
 
         model = Model(
             inputs = [static_input, seq_input],
-            outputs = [mu, sigma]
+            outputs = [prob]
         )
 
-        # have a loss only for the mu output
+        # compile a negative log likelihood, but output mse too
         model.compile(
-            loss={ 'probs': GaussianLoss(sigma) },
+            loss=negative_log_likelihood,
             optimizer=optimiser,
-            metrics={ 'probs': 'mean_squared_error' }
+            metrics=['mean_squared_error']
         )
 
     print(model.summary())
     return model
 
+# Not possible!
 def create_ensemble(models, n_static_features, n_seq_features):
     static_input = Input(shape=n_static_features, dtype='float32')
     seq_input = Input(shape=(None, n_seq_features), dtype='float32')

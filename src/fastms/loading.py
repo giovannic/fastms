@@ -7,7 +7,7 @@ from tensorflow.data import Dataset
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 import numpy as np
-from .preprocessing import format_runs, SequenceScaler
+from .preprocessing import format_runs, SequenceScaler, DummyScaler
 import logging
 
 ENTRIES_PER_PATH = 10
@@ -77,7 +77,7 @@ class TrainingGenerator(object):
     n_outputs = None
     n_timesteps = None
 
-    def __init__(self, indir, n, split, seed, truncate):
+    def __init__(self, indir, n, split, seed, truncate, scale_y):
         """
         -- indir the directory to scan for samples
         -- n the total number of samples to generate
@@ -108,11 +108,14 @@ class TrainingGenerator(object):
         )
         self.X_scaler = StandardScaler().fit(X_train)
         self.X_seq_scaler = SequenceScaler().fit(X_seq_train)
-        self.y_scaler = SequenceScaler().fit(y_train)
         self.X_train = self.X_scaler.transform(X_train)
         self.X_test = self.X_scaler.transform(X_test)
         self.X_seq_train = self.X_seq_scaler.transform(X_seq_train)
         self.X_seq_test = self.X_seq_scaler.transform(X_seq_test)
+        if scale_y:
+            self.y_scaler = SequenceScaler().fit(y_train)
+        else:
+            self.y_scaler = DummyScaler().fit(y_train)
         self.y_train = self.y_scaler.transform(y_train)
         self.y_test = self.y_scaler.transform(y_test)
         logging.info("data processed")

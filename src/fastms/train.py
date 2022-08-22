@@ -17,25 +17,36 @@ from .export import save_model, save_scaler
 from .hyperparameters import (
     default_params,
     default_ed_params,
-    default_attention_params
+    default_attention_params,
+    default_prob_params
 )
 
 def train(args):
     logging.info(f"seed set at {args.seed}")
 
     logging.info(f"loading {args.n} samples from {args.sample_dir}")
+    
+    if (args.prob and not args.no_scale_y):
+        logging.warn('you probably want to set no_scale_y == True when prob == True')
     samples = create_training_generator(
         args.sample_dir,
         args.n,
         args.split,
         args.seed,
-        args.truncate
+        args.truncate,
+        not args.no_scale_y
     )
 
     if (args.ed):
         params = default_ed_params(samples.n_outputs)
     elif (args.attention):
         params = default_attention_params(samples.n_features, samples.n_outputs)
+    elif (args.prob):
+        params = default_prob_params(
+            samples.n_static_features,
+            samples.n_seq_features,
+            samples.n_outputs
+        )
     else:
         params = default_params(
             samples.n_static_features,
@@ -130,6 +141,7 @@ if __name__ == "__main__":
     parser.add_argument('--attention', type=bool, default=False)
     parser.add_argument('--fit_log', type=str, default=False)
     parser.add_argument('--prob', type=bool, default=False)
+    parser.add_argument('--no_scale_y', type=bool, default=False)
     args = parser.parse_args()
 
     setup_log(args.log)

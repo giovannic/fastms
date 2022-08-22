@@ -47,3 +47,14 @@ class SequenceScaler(TransformerMixin):
     
     def inverse_transform(self, X, **kwargs):
         return X * self._std + self._mean
+
+class DummyScaler(TransformerMixin):
+
+    def fit(self, X, **kwargs):
+        return self
+    
+    def transform(self, X, **kwargs):
+        return X
+    
+    def inverse_transform(self, X, **kwargs):
+        return X

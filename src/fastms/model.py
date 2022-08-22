@@ -5,6 +5,7 @@ from tensorflow import keras
 from tensorflow.keras import layers, Model, Input
 import tensorflow.keras.backend as K
 from .attention import BahdanauAttention, LuongAttention, AttentionDecoder
+from tensorflow.keras.callbacks import TensorBoard
 from .log import ExtendedTensorBoard
 
 class RepeatLayer(layers.Layer):
@@ -142,7 +143,8 @@ def train_model(model, gen, epochs, seed, verbose=True, log=False):
             epochs = epochs,
             verbose = verbose,
             callbacks = [
-                ExtendedTensorBoard(gen, log_dir=log, histogram_freq=1)
+                TensorBoard(log_dir=log, histogram_freq=1)
+                # ExtendedTensorBoard(gen, log_dir=log, histogram_freq=1)
             ]
         )
     else:

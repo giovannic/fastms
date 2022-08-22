@@ -22,6 +22,24 @@ def default_params(n_static_features, n_seq_features, n_outputs):
         'rnn_layer': LSTM
     }
 
+def default_prob_params(n_static_features, n_seq_features, n_outputs):
+    return {
+        'optimiser': 'adam',
+        'n_static_features': n_static_features,
+        'n_seq_features': n_seq_features,
+        'n_layer': [n_seq_features + n_static_features, n_outputs],
+        'n_dense_layer': [n_outputs * 2],
+        'n_outputs': n_outputs,
+        'dense_activation': ['linear'],
+        'dense_initialiser': ['glorot_normal'],
+        'dropout': .0,
+        'loss': 'log_cosh',
+        'batch_size': 100,
+        'rnn_layer': LSTM
+    }
+
+
+
 def default_ed_params(n_outputs, n_latent = 100):
     return {
         'optimiser': 'adam',
