@@ -55,27 +55,6 @@ def beta_distribution_from_tensor(t, boundary):
         allow_nan_stats=False
     )
 
-class EnsemblingLayer(layers.Layer):
-
-    def __init__(self, output_dim, **kwargs):
-        self.output_dim = output_dim
-        super(EnsemblingLayer, self).__init__(**kwargs)
-
-    def call(self, inputs):
-        mus, sigmas = inputs
-        mu = tf.math.reduce_mean(mus, axis=0)
-        sigma = tf.math.sqrt(
-            tf.math.reduce_mean(
-                sigmas + tf.math.square(mus), axis=0
-            ) - tf.square(mu)
-        )
-        return [mu, sigma]
-
-    def get_config(self):
-        config = super(EnsemblingLayer, self).get_config()
-        config.update({ 'output_dim': self.output_dim })
-        return config
-
 def create_prob_model(
     optimiser,
     rnn_layer,
@@ -222,27 +201,6 @@ def create_prob_model(
             metrics=['mean_squared_error']
         )
 
-    print(model.summary())
-    return model
-
-# Not possible!
-def create_ensemble(models, n_static_features, n_seq_features):
-    static_input = Input(shape=n_static_features, dtype='float32')
-    seq_input = Input(shape=(None, n_seq_features), dtype='float32')
-    inputs = [model.input for model in models]
-
-    mu = tf.stack([m.output[0] for m in models])
-    sigma = tf.stack([m.output[1] for m in models])
-    mu, sigma = EnsemblingLayer(mu.shape[-1])([mu, sigma])
-
-    for i, model in enumerate(models):
-        for layer in model.layers:
-            layer._name = f'ensemble_{i}_{layer.name}'
-
-    model = Model(
-        inputs = inputs,
-        outputs = [mu, sigma]
-    )
     print(model.summary())
     return model
 

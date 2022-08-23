@@ -3,11 +3,16 @@ import pickle
 from tensorflow.keras.models import load_model as load_keras_model
 from tensorflow.keras.utils import custom_object_scope
 import numpy as np
-from .prob_model import RepeatLayer, beta_negative_log_likelihood
+from .prob_model import (
+    RepeatLayer,
+    negative_log_likelihood,
+    ClippedNegativeLogLikelihood
+)
 
 def load_model(path):
     custom_objects = {
-        'beta_negative_log_likelihood': beta_negative_log_likelihood,
+        'negative_log_likelihood': negative_log_likelihood,
+        'ClippedNegativeLogLikelihood': ClippedNegativeLogLikelihood,
         'RepeatLayer': RepeatLayer
     }
     with custom_object_scope(custom_objects):
