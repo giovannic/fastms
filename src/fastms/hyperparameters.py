@@ -31,14 +31,16 @@ def default_prob_params(n_static_features, n_seq_features, n_outputs):
         'n_dense_layer': [n_outputs],
         'n_dense_prob_layer': [n_outputs],
         'n_outputs': n_outputs,
-        'dense_activation': 'linear',
-        'dense_initialiser': 'glorot_normal',
+        'dense_activation': 'relu',
+        'dense_initialiser': 'he_normal',
+        'output_activation': 'linear',
+        'output_initialiser': 'glorot_normal',
         'dropout': .0,
         'loss': 'log_cosh',
         'batch_size': 100,
         'rnn_layer': LSTM,
-        'regulariser': None,
-        'prob': 'beta'
+        'regulariser': 'l2',
+        'prob': 'logit_normal'
     }
 
 

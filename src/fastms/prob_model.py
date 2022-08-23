@@ -67,6 +67,8 @@ def create_prob_model(
     n_outputs,
     dense_activation,
     dense_initialiser,
+    output_activation,
+    output_initialiser,
     n_dense_prob_layer,
     prob,
     regulariser,
@@ -93,6 +95,7 @@ def create_prob_model(
                 n,
                 dropout=dropout,
                 kernel_regularizer=regulariser,
+                recurrent_regularizer=regulariser,
                 return_sequences=True
             )(recurrent_model)
 
@@ -109,27 +112,35 @@ def create_prob_model(
                 )
             )(model_output)
 
+        # apply prob layers
+        param_1 = param_2 = model_output
+        for i, n in enumerate(n_dense_prob_layer):
+            if i == len(n_dense_prob_layer) - 1:
+                activation = output_activation
+                initialiser = output_initialiser
+                layer_regulariser = None
+            else:
+                activation = dense_activation
+                initialiser = dense_initialiser
+                layer_regulariser = regulariser
+
+            param_1 = layers.Dense(
+                n,
+                activation=activation,
+                kernel_initializer=initialiser,
+                kernel_regularizer=layer_regulariser
+            )(param_1)
+
+            param_2 = layers.Dense(
+                n,
+                activation=activation,
+                kernel_initializer=initialiser,
+                kernel_regularizer=layer_regulariser
+            )(param_2)
+
+        prob_params = layers.Concatenate()([param_1, param_2])
 
         if prob == 'beta':
-            alpha = beta = model_output
-
-            for n in n_dense_prob_layer:
-                alpha = layers.Dense(
-                    n,
-                    activation=dense_activation,
-                    kernel_initializer=dense_initialiser,
-                    kernel_regularizer=regulariser
-                )(alpha)
-
-                beta = layers.Dense(
-                    n,
-                    activation=dense_activation,
-                    kernel_initializer=dense_initialiser,
-                    kernel_regularizer=regulariser
-                )(beta)
-
-            prob_params = layers.Concatenate()([alpha, beta])
-
             # apply a beta distribution
             prob = tfp.layers.DistributionLambda(
                 lambda t: beta_distribution_from_tensor(t, n_outputs),
@@ -138,22 +149,6 @@ def create_prob_model(
 
             loss = ClippedNegativeLogLikelihood()
         elif prob == 'normal':
-            mu = sigma = model_output
-            for n in n_dense_prob_layer:
-                mu = layers.Dense(
-                    n,
-                    activation=dense_activation,
-                    kernel_initializer=dense_initialiser
-                )(mu)
-
-                sigma = layers.Dense(
-                    n,
-                    activation=dense_activation,
-                    kernel_initializer=dense_initialiser
-                )(sigma)
-
-            prob_params = layers.Concatenate()([mu, sigma])
-
             # apply a beta distribution
             prob = tfp.layers.DistributionLambda(
                 lambda t: normal_distribution_from_tensor(t, n_outputs),
@@ -162,22 +157,6 @@ def create_prob_model(
 
             loss = negative_log_likelihood
         elif prob == 'logit_normal':
-            mu = sigma = model_output
-            for n in n_dense_prob_layer:
-                mu = layers.Dense(
-                    n,
-                    activation=dense_activation,
-                    kernel_initializer=dense_initialiser
-                )(mu)
-
-                sigma = layers.Dense(
-                    n,
-                    activation=dense_activation,
-                    kernel_initializer=dense_initialiser
-                )(sigma)
-
-            prob_params = layers.Concatenate()([mu, sigma])
-
             # apply a beta distribution
             prob = tfp.layers.DistributionLambda(
                 lambda t: logit_normal_distribution_from_tensor(t, n_outputs),
@@ -187,7 +166,6 @@ def create_prob_model(
             loss = ClippedNegativeLogLikelihood()
         else:
             raise ValueError(f'Unknown value of prob {prob}')
-
 
         model = Model(
             inputs = [static_input, seq_input],
