@@ -86,7 +86,8 @@ def train(args):
             samples.X_seq_test,
             samples.y_test,
             samples.y_scaler,
-            1 #TODO: create unique input for ensemble
+            1, #TODO: create unique input for ensemble
+            args.outdir
         )
         predictions = prob_model_predict(
             model,

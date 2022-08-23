@@ -1,7 +1,9 @@
+import os
 import numpy as np
 import pandas as pd
 from tensorflow.keras.wrappers.scikit_learn import KerasRegressor
 from sklearn.metrics import mean_squared_error
+import matplotlib.pyplot as plt
 from .log import logging
 
 def test_model(model, X_test, X_seq_test, y_test, y_scaler):
@@ -20,7 +22,7 @@ def test_model(model, X_test, X_seq_test, y_test, y_scaler):
     )
     logging.info(f'actual error: {actual_error}')
 
-def test_prob_model(model, X_test, X_seq_test, y_test, y_scaler, n):
+def test_prob_model(model, X_test, X_seq_test, y_test, y_scaler, n, outpath):
     predictions = model.predict((X_test, X_seq_test) * n)
     error = mean_squared_error(
         predictions.reshape(predictions.shape[0], -1),
@@ -40,13 +42,21 @@ def test_prob_model(model, X_test, X_seq_test, y_test, y_scaler, n):
     # space of CDF quantiles to observe
     p = np.linspace(0.001, 1, endpoint=False)
 
-    # observed probabilities
+    # probability distribution
     dist = model((X_test, X_seq_test) * n)
+    # CDF
     F = dist.cdf(y_test).numpy()
+    # observed probabilities
     p_hat = np.array([np.sum(F < pj) for pj in p]) / F.size
-    cal = np.sum(np.square(p - p_hat))
 
+    cal = np.sum(np.square(p - p_hat))
     logging.info(f'calibration error: {cal}')
+
+    plt.plot(p_hat, p, linestyle = '-', marker = 'o')
+    plt.xlabel('observed confidence level')
+    plt.xlabel('actual confidence level')
+    plt.title('Calibration plot')
+    plt.savefig(os.path.join(outpath, 'calibration.png'))
 
     try:
         shar = np.mean(dist.stddev())
