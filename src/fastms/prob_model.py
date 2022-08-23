@@ -8,17 +8,16 @@ tfd = tfp.distributions
 from .model import RepeatLayer
 
 @tf.function
-def normal_negative_log_likelihood(y_true, y_pred):
+def negative_log_likelihood(y_true, y_pred):
     return -y_pred.log_prob(y_true)
 
-@tf.function
-def beta_negative_log_likelihood(y_true, y_pred):
-    '''
-    beta distribution is only valid between 0 and 1 exclusive
-    so we softclip
-    '''
-    softclip = tfp.bijectors.SoftClip(0, 1)
-    return -y_pred.log_prob(softclip(y_true))
+class ClippedNegativeLogLikelihood(losses.Loss):
+    def __init__(self, **kwargs):
+        self.softclip = tfp.bijectors.SoftClip(0, 1, hinge_softness=.01)
+        super(ClippedNegativeLogLikelihood, self).__init__(**kwargs)
+
+    def call(self, y_true, y_pred):
+        return -y_pred.log_prob(self.softclip(y_true))
 
 def normal_distribution_from_tensor(t, boundary):
     '''
@@ -26,6 +25,18 @@ def normal_distribution_from_tensor(t, boundary):
     parameters
     '''
     return tfd.Normal(
+        t[..., :boundary],
+        tf.math.softplus(t[..., boundary:]),
+        validate_args=True,
+        allow_nan_stats=False
+    )
+
+def logit_normal_distribution_from_tensor(t, boundary):
+    '''
+    splits the tensor in half at `boundary` for the 0 and 1 concentration
+    parameters
+    '''
+    return tfd.LogitNormal(
         t[..., :boundary],
         tf.math.softplus(t[..., boundary:]),
         validate_args=True,
@@ -146,7 +157,7 @@ def create_prob_model(
                 convert_to_tensor_fn = lambda d: d.mean()
             )(prob_params)
 
-            loss = beta_negative_log_likelihood
+            loss = ClippedNegativeLogLikelihood()
         elif prob == 'normal':
             mu = sigma = model_output
             for n in n_dense_prob_layer:
@@ -170,7 +181,31 @@ def create_prob_model(
                 convert_to_tensor_fn = lambda d: d.mean()
             )(prob_params)
 
-            loss = normal_negative_log_likelihood
+            loss = negative_log_likelihood
+        elif prob == 'logit_normal':
+            mu = sigma = model_output
+            for n in n_dense_prob_layer:
+                mu = layers.Dense(
+                    n,
+                    activation=dense_activation,
+                    kernel_initializer=dense_initialiser
+                )(mu)
+
+                sigma = layers.Dense(
+                    n,
+                    activation=dense_activation,
+                    kernel_initializer=dense_initialiser
+                )(sigma)
+
+            prob_params = layers.Concatenate()([mu, sigma])
+
+            # apply a beta distribution
+            prob = tfp.layers.DistributionLambda(
+                lambda t: logit_normal_distribution_from_tensor(t, n_outputs),
+                convert_to_tensor_fn = lambda d: d.mean_approx()
+            )(prob_params)
+
+            loss = ClippedNegativeLogLikelihood()
         else:
             raise ValueError(f'Unknown value of prob {prob}')
 
