@@ -181,7 +181,3 @@ def create_prob_model(
 
     print(model.summary())
     return model
-
-def prob_model_predict(model, X_test, X_seq_test, scaler, n):
-    predictions = model.predict((X_test, X_seq_test) * n)
-    return scaler.inverse_transform(predictions)

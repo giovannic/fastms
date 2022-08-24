@@ -11,9 +11,10 @@ from .model import (
     train_model,
     model_predict
 )
-from .prob_model import create_prob_model, prob_model_predict
+from .prob_model import create_prob_model
+from .calibration import calibrate_model
 from .evaluate import test_model, test_prob_model
-from .export import save_model, save_scaler
+from .export import save_model, save_scaler, save_calibrator
 from .hyperparameters import (
     default_params,
     default_ed_params,
@@ -86,15 +87,7 @@ def train(args):
             samples.X_seq_test,
             samples.y_test,
             samples.y_scaler,
-            1, #TODO: create unique input for ensemble
             args.outdir
-        )
-        predictions = prob_model_predict(
-            model,
-            samples.X_test,
-            samples.X_seq_test,
-            samples.y_scaler,
-            1 #TODO: create unique input for ensemble
         )
     else:
         test_model(
@@ -104,12 +97,12 @@ def train(args):
             samples.y_test,
             samples.y_scaler
         )
-        predictions = model_predict(
-            model,
-            samples.X_test,
-            samples.X_seq_test,
-            samples.y_scaler
-        )
+    predictions = model_predict(
+        model,
+        samples.X_test,
+        samples.X_seq_test,
+        samples.y_scaler
+    )
     truth = samples.truth()
     results = [
         { 'prediction': predictions[i].tolist(), 'truth': truth[i].tolist() }
@@ -123,6 +116,20 @@ def train(args):
     save_scaler(samples.X_scaler, os.path.join(args.outdir, 'X_scaler'))
     save_scaler(samples.X_seq_scaler, os.path.join(args.outdir, 'X_seq_scaler'))
     save_scaler(samples.y_scaler, os.path.join(args.outdir, 'y_scaler'))
+
+    if (args.prob):
+        logging.info(f"Calibrating")
+        calibrator = calibrate_model(
+            model,
+            samples.X_test,
+            samples.X_seq_test,
+            samples.y_test,
+            samples.y_scaler,
+            args.outdir,
+            args.calibration_split,
+            args.seed
+        )
+        save_calibrator(calibrator, os.path.join(args.outdir, 'calibrator'))
 
     logging.info("done")
 
@@ -143,6 +150,7 @@ if __name__ == "__main__":
     parser.add_argument('--fit_log', type=str, default=False)
     parser.add_argument('--prob', type=bool, default=False)
     parser.add_argument('--no_scale_y', type=bool, default=False)
+    parser.add_argument('--calibration_split', type=float, default=.5)
     args = parser.parse_args()
 
     setup_log(args.log)
