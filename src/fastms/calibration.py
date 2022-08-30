@@ -39,13 +39,14 @@ def calibrate_model(
         y_min=0,
         y_max=1,
         out_of_bounds='clip'
-    ).fit(p_hat, p)
+    ).fit(cdf, p_hat)
 
     # test the calibration
     dist = model((X_cal_test, X_seq_cal_test))
     cdf = dist.cdf(y_cal_test).numpy()
     p_hat = np.array([np.sum(cdf < pj) for pj in p]) / cdf.size
-    p_hat_cal = calibrator.predict(p_hat)
+    cdf_cal = calibrator.predict(cdf)
+    p_hat_cal = np.array([np.sum(cdf_cal < pj) for pj in p]) / cdf_cal.size
     pre_calibration_error = np.sum(np.square(p - p_hat))
     post_calibration_error = np.sum(np.square(p - p_hat_cal))
 
@@ -54,6 +55,7 @@ def calibrate_model(
 
     plt.plot(p_hat, p, linestyle = '-', marker = 'o', label='pre-calibration')
     plt.plot(p_hat_cal, p, linestyle = '-', marker = 'o', label='post-calibration')
+    plt.plot(p, p, linestyle = '-', marker = 'none', alpha=0.5)
     plt.xlabel('observed confidence level')
     plt.ylabel('actual confidence level')
     plt.title('Calibration plot')
