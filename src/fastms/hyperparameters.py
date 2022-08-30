@@ -2,23 +2,26 @@ import argparse
 from sklearn.model_selection import GridSearchCV
 from tensorflow.keras.layers import LSTM, GRU
 from tensorflow.keras.wrappers.scikit_learn import KerasRegressor
+from tensorflow.keras.optimizers import Adam
 from .loading import create_training_generator
 from .model import create_model, create_ed_model, create_attention_model
 from .log import setup_log, logging
 
 def default_params(n_static_features, n_seq_features, n_outputs):
     return {
-        'optimiser': 'adam',
+        'optimiser': Adam(),
         'n_static_features': n_static_features,
         'n_seq_features': n_seq_features,
-        'n_layer': [n_seq_features + n_static_features, n_outputs],
-        'n_dense_layer': [n_outputs],
+        'n_layer': [n_seq_features + n_static_features, n_outputs, n_outputs],
+        'n_dense_layer': [n_outputs, n_outputs],
         'n_outputs': n_outputs,
-        'dense_activation': 'linear',
-        'dense_initialiser': 'glorot_normal',
+        'dense_activation': 'relu',
+        'dense_initialiser': 'he_normal',
+        'output_activation': 'linear',
+        'output_initialiser': 'glorot_normal',
         'dropout': .0,
         'loss': 'log_cosh',
-        'batch_size': 100,
+        'batch_size': 500,
         'rnn_layer': LSTM
     }
 

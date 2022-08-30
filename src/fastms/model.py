@@ -5,7 +5,8 @@ from tensorflow import keras
 from tensorflow.keras import layers, Model, Input
 import tensorflow.keras.backend as K
 from .attention import BahdanauAttention, LuongAttention, AttentionDecoder
-from tensorflow.keras.callbacks import TensorBoard
+from tensorflow.keras.callbacks import TensorBoard, ReduceLROnPlateau
+from tensorflow.keras.initializers import Constant
 from .log import ExtendedTensorBoard
 
 class RepeatLayer(layers.Layer):
@@ -24,6 +25,8 @@ def create_model(
     n_dense_layer,
     dense_activation,
     dense_initialiser,
+    output_activation,
+    output_initialiser,
     **kwargs
     ):
     if list_physical_devices('GPU') and kwargs.get('multigpu', False):
@@ -44,16 +47,26 @@ def create_model(
             recurrent_model = rnn_layer(
                 n,
                 dropout=dropout,
-                return_sequences=True,
+                bias_regularizer='l2',
+                #recurrent_regularizer='l2',
+                #kernel_regularizer='l2',
+                return_sequences=True
             )(recurrent_model)
 
         model_output = recurrent_model
-        for n in n_dense_layer:
+        for i, n in enumerate(n_dense_layer):
+            if i == len(n_dense_layer) - 1:
+                activation = output_activation
+                initialiser = output_initialiser
+            else:
+                activation = dense_activation
+                initialiser = dense_initialiser
             model_output = layers.TimeDistributed(
                 layers.Dense(
                     n,
-                    activation=dense_activation,
-                    kernel_initializer=dense_initialiser
+                    activation=activation,
+                    kernel_initializer=initialiser,
+                    bias_regularizer='l2'
                 )
             )(model_output)
 
@@ -138,7 +151,8 @@ def train_model(model, gen, epochs, seed, verbose=True, log=False):
             epochs = epochs,
             verbose = verbose,
             callbacks = [
-                TensorBoard(log_dir=log, histogram_freq=1)
+                TensorBoard(log_dir=log, histogram_freq=1),
+                ReduceLROnPlateau(monitor='loss', factor=0.2, patience=5, min_lr=1e-6)
                 # ExtendedTensorBoard(gen, log_dir=log, histogram_freq=1)
             ]
         )
