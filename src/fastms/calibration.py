@@ -33,17 +33,17 @@ def calibrate_model(
     # calibrate the model on training data
     p = np.linspace(0.001, 1, endpoint=False)
     dist = model((X_cal_train, X_seq_cal_train))
-    cdf = dist.cdf(y_cal_train).numpy()
-    p_hat = np.array([np.sum(cdf < pj) for pj in p]) / cdf.size
+    cdf = dist.cdf(y_cal_train).numpy().reshape(-1)
+    p_hat = np.array([np.sum(cdf <= p) for p in cdf], dtype=np.float32) / cdf.size
     calibrator = IsotonicRegression(
-        y_min=0,
-        y_max=1,
+        y_min=0.,
+        y_max=1.,
         out_of_bounds='clip'
     ).fit(cdf, p_hat)
 
     # test the calibration
     dist = model((X_cal_test, X_seq_cal_test))
-    cdf = dist.cdf(y_cal_test).numpy()
+    cdf = dist.cdf(y_cal_test).numpy().reshape(-1)
     p_hat = np.array([np.sum(cdf < pj) for pj in p]) / cdf.size
     cdf_cal = calibrator.predict(cdf)
     p_hat_cal = np.array([np.sum(cdf_cal < pj) for pj in p]) / cdf_cal.size
@@ -55,7 +55,7 @@ def calibrate_model(
 
     plt.plot(p_hat, p, linestyle = '-', marker = 'o', label='pre-calibration')
     plt.plot(p_hat_cal, p, linestyle = '-', marker = 'o', label='post-calibration')
-    plt.plot(p, p, linestyle = '-', marker = 'none', alpha=0.5)
+    plt.plot(p, p, linestyle = '-', marker = '', alpha=0.5)
     plt.xlabel('observed confidence level')
     plt.ylabel('actual confidence level')
     plt.title('Calibration plot')
