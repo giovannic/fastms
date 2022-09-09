@@ -55,6 +55,23 @@ def beta_distribution_from_tensor(t, boundary):
         allow_nan_stats=False
     )
 
+def mean_field_posterior(n_kernel, n_bias, dtype):
+    n = n_kernel + n_bias
+    return tf.keras.Sequential([
+        tfp.layers.VariableLayer(2 * n),
+        tfp.layers.DistributionLambda(lambda t: tfd.Independent(
+            tfd.Normal(loc=t[..., :n], scale=tf.math.softplus(t[..., n:])),
+            reinterpreted_batch_ndims=1
+        ))
+    ])
+
+def normal_prior(n_kernel, n_bias, dtype):
+    n = n_kernel + n_bias
+    return tfp.layers.DistributionLambda(lambda t: tfd.Independent(
+        tfd.Normal(loc=tf.zeros(n), scale=1),
+        reinterpreted_batch_ndims=1
+    ))
+
 def create_prob_model(
     optimiser,
     rnn_layer,
@@ -72,6 +89,7 @@ def create_prob_model(
     n_dense_prob_layer,
     prob,
     regulariser,
+    variational,
     **kwargs
     ):
     if list_physical_devices('GPU') and kwargs.get('multigpu', False):
@@ -124,24 +142,36 @@ def create_prob_model(
                 initialiser = dense_initialiser
                 layer_regulariser = regulariser
 
-            param_1 = layers.Dense(
-                n,
-                activation=activation,
-                kernel_initializer=initialiser,
-                kernel_regularizer=layer_regulariser
-            )(param_1)
+            if variational:
+                param_1 = tfp.layers.DenseVariational(
+                    n,
+                    mean_field_posterior,
+                    normal_prior
+                )(param_1)
 
-            param_2 = layers.Dense(
-                n,
-                activation=activation,
-                kernel_initializer=initialiser,
-                kernel_regularizer=layer_regulariser
-            )(param_2)
+                param_2 = tfp.layers.DenseVariational(
+                    n,
+                    mean_field_posterior,
+                    normal_prior
+                )(param_2)
+            else:
+                param_1 = layers.Dense(
+                    n,
+                    activation=activation,
+                    kernel_initializer=initialiser,
+                    kernel_regularizer=layer_regulariser
+                )(param_1)
+
+                param_2 = layers.Dense(
+                    n,
+                    activation=activation,
+                    kernel_initializer=initialiser,
+                    kernel_regularizer=layer_regulariser
+                )(param_2)
 
         prob_params = layers.Concatenate()([param_1, param_2])
 
         if prob == 'beta':
-            # apply a beta distribution
             prob = tfp.layers.DistributionLambda(
                 lambda t: beta_distribution_from_tensor(t, n_outputs),
                 convert_to_tensor_fn = lambda d: d.mean()
@@ -149,7 +179,6 @@ def create_prob_model(
 
             loss = ClippedNegativeLogLikelihood()
         elif prob == 'normal':
-            # apply a beta distribution
             prob = tfp.layers.DistributionLambda(
                 lambda t: normal_distribution_from_tensor(t, n_outputs),
                 convert_to_tensor_fn = lambda d: d.mean()
@@ -157,7 +186,6 @@ def create_prob_model(
 
             loss = negative_log_likelihood
         elif prob == 'logit_normal':
-            # apply a beta distribution
             prob = tfp.layers.DistributionLambda(
                 lambda t: logit_normal_distribution_from_tensor(t, n_outputs),
                 convert_to_tensor_fn = lambda d: d.mean_approx()

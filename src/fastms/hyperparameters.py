@@ -40,7 +40,8 @@ def default_prob_params(n_static_features, n_seq_features, n_outputs):
         'batch_size': 100,
         'rnn_layer': LSTM,
         'regulariser': 'l2',
-        'prob': 'logit_normal'
+        'prob': 'logit_normal',
+        'variational': True
     }
 
 
