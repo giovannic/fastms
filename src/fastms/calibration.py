@@ -1,9 +1,21 @@
 import os
 from sklearn.model_selection import train_test_split
 from sklearn.isotonic import IsotonicRegression
+import multiprocessing
 import matplotlib.pyplot as plt
 import numpy as np
 from .log import logging
+
+def empirical_single(cdf, pj):
+    return np.sum(cdf <= pj)
+
+def empirical(cdf, p):
+    ncpus = multiprocessing.cpu_count()
+    with multiprocessing.Pool(ncpus) as pool:
+        return np.array(pool.starmap(
+            empirical_single,
+            ((cdf, pj) for pj in p)
+        )) / cdf.size
 
 def calibrate_model(
     model,
@@ -31,10 +43,12 @@ def calibrate_model(
     )
 
     # calibrate the model on training data
-    p = np.linspace(0.001, 1, endpoint=False)
+    p = np.linspace(0.001, 1, num=50, endpoint=False)
     dist = model((X_cal_train, X_seq_cal_train))
     cdf = dist.cdf(y_cal_train).numpy().reshape(-1)
-    p_hat = np.array([np.sum(cdf <= p) for p in cdf], dtype=np.float32) / cdf.size
+    p_hat = empirical(cdf, cdf)
+
+    logging.info('Fitting calibrator')
     calibrator = IsotonicRegression(
         y_min=0.,
         y_max=1.,
@@ -42,11 +56,12 @@ def calibrate_model(
     ).fit(cdf, p_hat)
 
     # test the calibration
+    logging.info('Testing calibration')
     dist = model((X_cal_test, X_seq_cal_test))
     cdf = dist.cdf(y_cal_test).numpy().reshape(-1)
-    p_hat = np.array([np.sum(cdf < pj) for pj in p]) / cdf.size
+    p_hat = empirical(cdf, p)
     cdf_cal = calibrator.predict(cdf)
-    p_hat_cal = np.array([np.sum(cdf_cal < pj) for pj in p]) / cdf_cal.size
+    p_hat_cal = empirical(cdf_cal, p)
     pre_calibration_error = np.sum(np.square(p - p_hat))
     post_calibration_error = np.sum(np.square(p - p_hat_cal))
 
@@ -72,3 +87,5 @@ def calibrate_model(
             logging.warn(
                 'Tensorflow probability needs to be upgraded to get sharpness info'
             )
+
+    return calibrator
