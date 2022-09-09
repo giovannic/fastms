@@ -33,16 +33,21 @@ def calibrate_model(
     # calibrate the model on training data
     p = np.linspace(0.001, 1, endpoint=False)
     dist = model((X_cal_train, X_seq_cal_train))
-    cdf = dist.cdf(y_cal_train).numpy()
-    p_hat = np.array([np.sum(cdf < pj) for pj in p]) / cdf.size
-    calibrator = IsotonicRegression(y_min=0, y_max=1).fit(p_hat, p)
-    pre_calibration_error = np.sum(np.square(p - p_hat))
+    cdf = dist.cdf(y_cal_train).numpy().reshape(-1)
+    p_hat = np.array([np.sum(cdf <= p) for p in cdf], dtype=np.float32) / cdf.size
+    calibrator = IsotonicRegression(
+        y_min=0.,
+        y_max=1.,
+        out_of_bounds='clip'
+    ).fit(cdf, p_hat)
 
     # test the calibration
-    dist = model((X_cal_test, X_seq_cal_train))
-    cdf = dist.cdf(y_cal_test).numpy()
+    dist = model((X_cal_test, X_seq_cal_test))
+    cdf = dist.cdf(y_cal_test).numpy().reshape(-1)
     p_hat = np.array([np.sum(cdf < pj) for pj in p]) / cdf.size
-    p_hat_cal = calibrator.predict(p_hat)
+    cdf_cal = calibrator.predict(cdf)
+    p_hat_cal = np.array([np.sum(cdf_cal < pj) for pj in p]) / cdf_cal.size
+    pre_calibration_error = np.sum(np.square(p - p_hat))
     post_calibration_error = np.sum(np.square(p - p_hat_cal))
 
     logging.info(f'calibration error (pre): {pre_calibration_error}')
@@ -50,6 +55,7 @@ def calibrate_model(
 
     plt.plot(p_hat, p, linestyle = '-', marker = 'o', label='pre-calibration')
     plt.plot(p_hat_cal, p, linestyle = '-', marker = 'o', label='post-calibration')
+    plt.plot(p, p, linestyle = '-', marker = '', alpha=0.5)
     plt.xlabel('observed confidence level')
     plt.ylabel('actual confidence level')
     plt.title('Calibration plot')
