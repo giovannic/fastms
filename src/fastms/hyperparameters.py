@@ -22,7 +22,7 @@ def default_params(n_static_features, n_seq_features, n_outputs):
         'rnn_layer': LSTM
     }
 
-def default_prob_params(n_static_features, n_seq_features, n_outputs):
+def default_prob_params(n_static_features, n_seq_features, n_outputs, n_samples, n_years):
     return {
         'optimiser': 'adam',
         'n_static_features': n_static_features,
@@ -36,8 +36,8 @@ def default_prob_params(n_static_features, n_seq_features, n_outputs):
         'output_activation': 'linear',
         'output_initialiser': 'glorot_normal',
         'dropout': .0,
-        'loss': 'log_cosh',
         'batch_size': 100,
+        'kl_weight': 1 / (n_samples * n_years),
         'rnn_layer': LSTM,
         'regulariser': 'l2',
         'prob': 'logit_normal',

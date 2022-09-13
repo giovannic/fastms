@@ -76,6 +76,7 @@ class TrainingGenerator(object):
     n_features = None
     n_outputs = None
     n_timesteps = None
+    n_samples = None
 
     def __init__(self, indir, n, split, seed, truncate, scale_y):
         """
@@ -106,6 +107,9 @@ class TrainingGenerator(object):
             train_size=split,
             random_state=self.seed
         )
+
+        self.n_samples = X_train.shape[0]
+        self.n_years = X_seq_train.shape[1]
         self.X_scaler = StandardScaler().fit(X_train)
         self.X_seq_scaler = SequenceScaler().fit(X_seq_train)
         self.X_train = self.X_scaler.transform(X_train)

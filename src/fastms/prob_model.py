@@ -1,3 +1,4 @@
+import numpy as np
 from tensorflow.config import list_physical_devices
 from tensorflow.distribute import MirroredStrategy, get_strategy
 from tensorflow.keras import layers, Model, Input, losses
@@ -57,18 +58,54 @@ def beta_distribution_from_tensor(t, boundary):
 
 def mean_field_posterior(n_kernel, n_bias, dtype):
     n = n_kernel + n_bias
+    def f(t):
+        sigma = tf.math.softplus(t[..., n:])
+        return tfd.Independent(
+            tfd.Normal(
+                loc=t[..., :n],
+                scale=sigma,
+                validate_args=True,
+                allow_nan_stats=False
+            ),
+            reinterpreted_batch_ndims=1
+        )
     return tf.keras.Sequential([
         tfp.layers.VariableLayer(2 * n),
-        tfp.layers.DistributionLambda(lambda t: tfd.Independent(
-            tfd.Normal(loc=t[..., :n], scale=tf.math.softplus(t[..., n:])),
-            reinterpreted_batch_ndims=1
-        ))
+        tfp.layers.DistributionLambda(f)
     ])
 
 def normal_prior(n_kernel, n_bias, dtype):
     n = n_kernel + n_bias
     return tfp.layers.DistributionLambda(lambda t: tfd.Independent(
-        tfd.Normal(loc=tf.zeros(n), scale=1),
+        tfd.Normal(loc=tf.zeros(n), scale=1, validate_args=True, allow_nan_stats=False),
+        reinterpreted_batch_ndims=1
+    ))
+
+def trainable_prior(n_kernel, n_bias, dtype):
+    n = n_kernel + n_bias
+    return tf.keras.Sequential([
+        tfp.layers.VariableLayer(n, dtype=dtype),
+        tfp.layers.DistributionLambda(lambda t: tfd.Independent(
+            tfd.Normal(loc=t, scale=1, validate_args=True, allow_nan_stats=False),
+            reinterpreted_batch_ndims=1
+        ))
+    ])
+
+def mixed_prior(n_kernel, n_bias, dtype):
+    n = n_kernel + n_bias
+    pi = .5
+    sigma_0 = 1.5
+    sigma_1 = .1
+    sigma = np.stack([
+        np.full(n, sigma_0, dtype=np.float32),
+        np.full(n, sigma_1, dtype=np.float32)
+    ], axis=1)
+    mixture = tfd.MixtureSameFamily(
+        tfd.Categorical(probs = [pi, 1 - pi]),
+        tfd.Normal(loc=tf.zeros((n, 2)), scale=sigma)
+    )
+    return tfp.layers.DistributionLambda(lambda t: tfd.Independent(
+        mixture,
         reinterpreted_batch_ndims=1
     ))
 
@@ -79,7 +116,6 @@ def create_prob_model(
     n_static_features,
     n_seq_features,
     dropout,
-    loss,
     n_dense_layer,
     n_outputs,
     dense_activation,
@@ -90,6 +126,7 @@ def create_prob_model(
     prob,
     regulariser,
     variational,
+    kl_weight,
     **kwargs
     ):
     if list_physical_devices('GPU') and kwargs.get('multigpu', False):
@@ -146,13 +183,15 @@ def create_prob_model(
                 param_1 = tfp.layers.DenseVariational(
                     n,
                     mean_field_posterior,
-                    normal_prior
+                    normal_prior,
+                    kl_weight=kl_weight
                 )(param_1)
 
                 param_2 = tfp.layers.DenseVariational(
                     n,
                     mean_field_posterior,
-                    normal_prior
+                    normal_prior,
+                    kl_weight=kl_weight
                 )(param_2)
             else:
                 param_1 = layers.Dense(

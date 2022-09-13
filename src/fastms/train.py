@@ -46,7 +46,9 @@ def train(args):
         params = default_prob_params(
             samples.n_static_features,
             samples.n_seq_features,
-            samples.n_outputs
+            samples.n_outputs,
+            samples.n_samples,
+            samples.n_years
         )
     else:
         params = default_params(
@@ -117,7 +119,7 @@ def train(args):
     save_scaler(samples.X_seq_scaler, os.path.join(args.outdir, 'X_seq_scaler'))
     save_scaler(samples.y_scaler, os.path.join(args.outdir, 'y_scaler'))
 
-    if (args.prob):
+    if (args.prob and not args.no_calibrate):
         logging.info(f"Calibrating")
         calibrator = calibrate_model(
             model,
@@ -151,6 +153,7 @@ if __name__ == "__main__":
     parser.add_argument('--prob', type=bool, default=False)
     parser.add_argument('--no_scale_y', type=bool, default=False)
     parser.add_argument('--calibration_split', type=float, default=.5)
+    parser.add_argument('--no_calibrate', type=bool, default=False)
     args = parser.parse_args()
 
     setup_log(args.log)
