@@ -136,7 +136,7 @@ setup(
         'sklearn',
         'tensorflow==2.4.1',
         'matplotlib',
-        'seaborn
+        'seaborn'
     ],
 
     # List additional groups of dependencies here (e.g. development
