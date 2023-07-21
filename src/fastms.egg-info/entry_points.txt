@@ -1,3 +1,0 @@
-[console_scripts]
-fastms = fastms:main
-
