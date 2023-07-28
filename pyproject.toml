@@ -1,6 +1,21 @@
-[build-system]
-requires = [
-    "setuptools>=42",
-    "wheel"
+[project]
+name = "fastms"
+version = "0.0.1"
+authors = [
+  { name="Giovanni Charles" },
 ]
-build-backend = "setuptools.build_meta"
+description = "A package for training surrogates for IC malaria models"
+readme = "README.rst"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+  "mox @ git+ssh://git@github.com/giovannic/mox@feat/time#egg=mox",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/giovannic/fastms"
+"Bug Tracker" = "https://github.com/giovannic/fastms/issues"

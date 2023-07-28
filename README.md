@@ -1,6 +1,6 @@
 # FastMS
 
-A fast approximation of malariasimulation
+Fast approximations of IC malaria models
 
 # Installation
 
@@ -16,5 +16,5 @@ FastMS is best run from the command line. To see the command line options,
 please run:
 
 ```
-python -m fastms.train --help
+python -m fastms --help
 ```
