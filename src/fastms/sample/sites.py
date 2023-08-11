@@ -6,15 +6,13 @@ from jax import random
 import pandas as pd
 
 def sample_sites(
-    path: str,
+    sites: dict,
     n: int,
     key: random.PRNGKeyArray,
     start_year: int,
     end_year: int
-    ) -> PyTree:
-    sites = _import_sites(path)
-    site_samples = _sample_site_dfs(key, n, sites)
-    return _sites_to_tree(site_samples, sites, start_year, end_year)
+    ) -> pd.DataFrame:
+    return _sample_site_dfs(key, n, sites)
 
 _intervention_columns = {
     'country': str,
@@ -79,7 +77,7 @@ _vector_columns = {
     'mum': float
 }
 
-def _import_sites(path: str) -> Dict:
+def import_sites(path: str) -> Dict:
     return {
         'interventions': pd.read_csv(
             join(path, 'interventions.csv'),
@@ -103,12 +101,12 @@ def _import_sites(path: str) -> Dict:
         )
     }
 
-def _sites_to_tree(
-        site_samples: pd.DataFrame,
-        sites: Dict,
-        start_year: int,
-        end_year: int
-        ) -> PyTree:
+def sites_to_tree(
+    site_samples: pd.DataFrame,
+    sites: Dict,
+    start_year: int,
+    end_year: int
+    ) -> PyTree:
     return {
         'interventions': _parse_interventions(
             site_samples,

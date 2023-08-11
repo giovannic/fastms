@@ -1,5 +1,6 @@
 from .prior import sample_prior
 from jax.random import PRNGKey
+import pickle
 
 def add_parser(subparsers):
     """add_parser. Adds the sample parser to the main ArgumentParser
@@ -61,7 +62,8 @@ def run(args):
                 PRNGKey(args.seed),
                 cores=args.cores
             )
-            #TODO: save to file
+            with open(args.output, 'wb') as f:
+                pickle.dump(samples, f)
         else:
             raise NotImplementedError('Sampling strategy not implemented yet')
     else:
