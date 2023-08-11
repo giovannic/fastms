@@ -1,3 +1,5 @@
+import pickle
+
 def add_parser(subparsers):
     """add_parser. Adds the training parser to the main ArgumentParser
     :param subparsers: the subparsers to modify
@@ -21,3 +23,13 @@ def add_parser(subparsers):
         type=str,
         help='Path to save the model in'
     )
+
+
+def run(args):
+    with open(args.samples, 'rb') as f:
+        samples = pickle.load(f)
+    if args.model == 'rnn':
+        (x, x_seq), y = samples
+        raise NotImplementedError('Model not implemented yet')
+    else:
+        raise NotImplementedError('Model not implemented yet')
