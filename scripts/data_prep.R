@@ -1,11 +1,11 @@
 library(foresite)
 
 # Clean intervention data
-interventions <- data.table::rbindlist(
+interventions <- data.frame(data.table::rbindlist(
   lapply(sites, function(s) get(s)$interventions),
   fill=T,
   use.names=T
-)
+))
 demography <- data.table::rbindlist(
   lapply(sites, function(s) get(s)$demography),
   fill=T,
@@ -22,16 +22,22 @@ seasonality <- data.table::rbindlist(
   use.names=T
 )
 
+#NOTE: there is a bug in foresite interventions where Yemeni sites have duplicate entries
+interventions <- interventions[interventions$iso3c != 'YEM',]
+
 vectors <- data.frame(subset(vectors, vectors$species %in% c("gambiae", "arabiensis", "funestus")))
-demography <- subset(demography, demography$iso3c %in% vectors$iso3c)
-interventions <- merge(data.frame(interventions), vectors[c('iso3c', 'name_1')])
-seasonality <- merge(data.frame(seasonality[is.na(seasonality$name_2),]), vectors[c('iso3c', 'name_1')])
+included_sites <- vectors[c('iso3c', 'name_1')]
+included_sites <- included_sites[!duplicated(included_sites),]
+demography <- subset(demography, demography$iso3c %in% unique(vectors$iso3c))
+interventions <- merge(data.frame(interventions), included_sites)
+seasonality <- merge(data.frame(seasonality[is.na(seasonality$name_2),]), included_sites)
 
 write.csv(vectors, 'vectors.csv', row.names = FALSE)
 write.csv(demography, 'demography.csv', row.names = FALSE)
 write.csv(interventions, 'interventions.csv', row.names = FALSE)
 write.csv(seasonality, 'seasonality.csv', row.names = FALSE)
 
+library(sp)
 # Clean observations
 observations <- read.csv('./battle_observations.csv')
 shapes <- do.call(rbind, lapply(unique(vectors$iso3c), function(s) malariaAtlas::getShp(ISO = s, admin_level = "admin1")))
@@ -40,9 +46,9 @@ proj4string(observations) <- proj4string(shapes)
 matches <- over(observations, shapes)
 observations$iso3c <- matches$iso
 observations$name_1 <- matches$name_1
-observations <- merge(data.frame(observations), vectors[c('iso3c', 'name_1')])
+observations <- merge(data.frame(observations), included_sites)
 observations <- observations[is.na(observations$EXCLUSION),]
-observations <- observations[observations$INTERVENTION == 'None']
+observations <- observations[observations$INTERVENTION == 'None',]
 observations <- observations[observations$SPECIES == 'Pf',]
 observations <- observations[!duplicated(observations),]
 
