@@ -1,5 +1,8 @@
 import argparse
-from .sample.parser import add_parser as add_sample_parser
+from .sample.parser import (
+    add_parser as add_sample_parser,
+    run as run_sample
+)
 from .train.parser import add_parser as add_train_parser
 from .infer.parser import add_parser as add_infer_parser
 from .forecast.parser import add_parser as add_forecast_parser
@@ -14,3 +17,8 @@ add_train_parser(subparsers)
 add_infer_parser(subparsers)
 add_forecast_parser(subparsers)
 args = parser.parse_args()
+
+if args.commands =='sample':
+    run_sample(args)
+else:
+    raise NotImplementedError('Command not implemented yet')
