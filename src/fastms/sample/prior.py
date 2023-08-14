@@ -51,20 +51,19 @@ def sample_prior(
     cores: int = 1
     ) -> PyTree:
     EIR = DistStrategy(dist.Uniform(0., 500.))
-    X_intrinsic, X_eir = sample(
+    X_intrinsic, init_EIR = sample(
         [_prior_intrinsic_space, EIR],
         n,
         key
     )
     sites = import_sites(site_path)
-    #TODO: fix years beyond files
     site_samples = sample_sites(sites, n, key, 1985, 2018)
     X_sites = sites_to_tree(site_samples, sites, 1985, 2018)
-    y = run_ibm(
+    y, X_eir = run_ibm(
         X_intrinsic,
         sites,
         site_samples,
-        X_eir,
+        init_EIR,
         cores
     )
     X = [X_intrinsic, X_eir, X_sites['seasonality'], X_sites['vectors']]

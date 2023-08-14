@@ -141,6 +141,14 @@ def _parse_interventions(
     end_year: int
     ) -> Dict:
     df = df[df.year.between(start_year, end_year)]
+    min_year = df.year.min()
+    if start_year < min_year:
+        df_min = df[df.year == min_year]
+        padding = pd.concat([
+            df_min.assign(year=y)
+            for y in range(start_year, min_year)
+        ])
+        df = pd.concat([padding, df]).sort_values('year')
     int_values = df.pivot(
         index=['iso3c', 'name_1', 'urban_rural'],
         columns='year',
@@ -197,6 +205,14 @@ def _parse_demography(
     end_year: int
     ) -> Array:
     df = df[df.year.between(start_year, end_year)]
+    min_year = df.year.min()
+    if start_year < min_year:
+        df_min = df[df.year == min_year]
+        padding = pd.concat([
+            df_min.assign(year=y)
+            for y in range(start_year, min_year)
+        ])
+        df = pd.concat([padding, df]).sort_values('year')
     dem_values = df.pivot(
         index=['iso3c', 'year'],
         columns='age_upper',
