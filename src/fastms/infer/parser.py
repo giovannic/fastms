@@ -5,6 +5,7 @@ from jax import numpy as jnp
 from jax import vmap
 from jax.random import PRNGKey
 from .ibm_model import surrogate_posterior
+from ..train.rnn import build, init
 import pickle
 
 def add_parser(subparsers):
@@ -48,10 +49,21 @@ def add_parser(subparsers):
         help='Path to site data'
     )
     sample_parser.add_argument(
+        '--samples',
+        type=str,
+        help='Samples used for training the surrogate'
+    )
+    sample_parser.add_argument(
         '--surrogate',
         '-s',
         type=str,
         help='Path to a surrogate model to use'
+    )
+    sample_parser.add_argument(
+        '--seed',
+        type=int,
+        help='Random number generation seed',
+        default=42
     )
 
 def _aggregate(xs, ns, age_lower, age_upper, time_lower, time_upper):
@@ -65,16 +77,19 @@ def _aggregate(xs, ns, age_lower, age_upper, time_lower, time_upper):
 
 def run(args):
     if args.model == 'ibm':
-        #TODO:
-        # * make key
-        # * make implementation function
-        # * run mcmc
         if args.surrogate is None:
             raise NotImplementedError(
                 'Only surrogate based inference is implemented'
             )
         orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-        ckpt = orbax_checkpointer.restore(args.surrogate)
+        if args.samples is None:
+            raise ValueError('Samples required')
+        with open(args.samples, 'rb') as f:
+            samples = pickle.load(f)
+        model = build(samples)
+        params = init(model)
+        ckpt = { 'surrogate': model, 'params': params }
+        ckpt = orbax_checkpointer.restore(args.surrogate, item=ckpt)
         model, params = ckpt['surrogate'], ckpt['params']
         if args.prevalence is None or args.incidence is None:
             raise ValueError('Both prevalence and incidence required')
@@ -86,7 +101,7 @@ def run(args):
         site_description = ['iso3c', 'name_1', 'urban_rural']
         prev = pd.merge(
             prev,
-            sites['interventions'],
+            sites['interventions'][site_description],
             how='left'
         ).sort_values(
             'urban_rural',
@@ -94,7 +109,7 @@ def run(args):
         ).drop_duplicates(site_description)
         inc = pd.merge(
             inc,
-            sites['interventions'],
+            sites['interventions'][site_description],
             how='left'
         ).sort_values(
             'urban_rural',
@@ -105,7 +120,7 @@ def run(args):
         ).drop_duplicates()
         start_year = 1985
         x_sites = sites_to_tree(site_samples, sites, start_year, 2018)
-        site_index = site_samples.reset_index().set_axis(
+        site_index = site_samples.reset_index().set_index(
             site_description
         )
         prev_index = site_index.loc[
@@ -125,10 +140,12 @@ def run(args):
             dtype=jnp.int32
         )
         inc_start_time = jnp.floor(
-            inc.START_YEAR - start_year * 365 + inc.START_MONTH * (365/12)
+            inc.START_YEAR.values - start_year * 365 +
+            inc.START_MONTH.values * (365/12)
         )
         inc_end_time = jnp.floor(
-            inc.END_YEAR - start_year * 365 + inc.END_MONTH * (365/12)
+            inc.END_YEAR.values - start_year * 365 +
+            inc.END_MONTH.values * (365/12)
         )
         def impl(x_intrinsic, x_eir):
             x = [
@@ -154,14 +171,15 @@ def run(args):
                 inc_uar,
                 inc_start_time,
                 inc_end_time
-            )
+            ) * inc.POP.values
             return site_prev, site_inc
         key = PRNGKey(args.seed)
         posterior_samples = surrogate_posterior(
-            model,
-            params,
             key,
-            impl
+            impl,
+            prev.N.values,
+            prev.N_POS.values,
+            inc.INC.values / 1000 * inc.POP.values
         )
         with open(args.output, 'wb') as f:
             pickle.dump(posterior_samples, f)

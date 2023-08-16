@@ -10,7 +10,7 @@ from jax.random import PRNGKeyArray
 MIN_RATE = 1e-12
 
 def model(
-    prev_N: Array,
+    n_prev: Array,
     impl: Callable[[Dict, Array],Tuple[Array, Array]],
     prev: Optional[Array]=None,
     inc: Optional[Array]=None
@@ -111,7 +111,7 @@ def model(
         'obs_prev',
         dist.Independent(
             dist.Binomial(
-                total_count=prev_N,
+                total_count=n_prev,
                 probs=prev_stats,
                 validate_args=True
             ),
@@ -133,10 +133,9 @@ def model(
     )
 
 def surrogate_posterior(
-    model,
-    params: PyTree,
     key: PRNGKeyArray,
     impl: Callable[[Dict, Array],Tuple[Array, Array]],
+    n_prev: Array,
     prev: Array,
     inc: Array,
 	n_samples: int = 100,
@@ -153,5 +152,5 @@ def surrogate_posterior(
 		num_chains=n_chains,
 		chain_method='vectorized' #pmap leads to segfault for some reason (https://github.com/google/jax/issues/13858)
 	)
-	mcmc.run(key, prev, inc, impl)
+	mcmc.run(key, n_prev, impl, prev, inc)
 	return mcmc.get_samples()

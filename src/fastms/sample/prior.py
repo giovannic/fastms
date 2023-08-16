@@ -57,7 +57,7 @@ def sample_prior(
         key
     )
     sites = import_sites(site_path)
-    site_samples = sample_sites(sites, n, key, 1985, 2018)
+    site_samples = sample_sites(sites, n, key)
     X_sites = sites_to_tree(site_samples, sites, 1985, 2018)
     y, X_eir = run_ibm(
         X_intrinsic,
