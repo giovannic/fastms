@@ -7,7 +7,10 @@ from .train.parser import (
     add_parser as add_train_parser,
     run as run_train
 )
-from .infer.parser import add_parser as add_infer_parser
+from .infer.parser import (
+    add_parser as add_infer_parser,
+    run as run_infer
+)
 from .forecast.parser import add_parser as add_forecast_parser
 
 parser = argparse.ArgumentParser(
@@ -25,5 +28,7 @@ if args.commands == 'sample':
     run_sample(args)
 elif args.commands == 'train':
     run_train(args)
+elif args.commands == 'infer':
+    run_infer(args)
 else:
     raise NotImplementedError('Command not implemented yet')

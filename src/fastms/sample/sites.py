@@ -8,9 +8,7 @@ import pandas as pd
 def sample_sites(
     sites: dict,
     n: int,
-    key: random.PRNGKeyArray,
-    start_year: int,
-    end_year: int
+    key: random.PRNGKeyArray
     ) -> pd.DataFrame:
     return _sample_site_dfs(key, n, sites)
 
