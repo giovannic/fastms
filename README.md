@@ -2,6 +2,15 @@
 
 Fast approximations of IC malaria models
 
+# Requirements
+
+For IBM model sampling, you will require R >= 4 with mrc-ide/site installed.
+
+```
+install.packages('remotes')
+remotes::install_github('mrc-ide/site')
+```
+
 # Installation
 
 You can install this package from the root of this directory using pip:

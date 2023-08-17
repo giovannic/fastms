@@ -101,26 +101,48 @@ def import_sites(path: str) -> Dict:
 
 def sites_to_tree(
     site_samples: pd.DataFrame,
-    sites: Dict,
-    start_year: int,
-    end_year: int
+    sites: Dict
     ) -> PyTree:
     return {
         'interventions': _parse_interventions(
             site_samples,
-            sites['interventions'],
-            start_year,
-            end_year
+            sites['interventions']
         ),
         'demography': _parse_demography(
             site_samples,
-            sites['demography'],
-            start_year,
-            end_year
+            sites['demography']
         ),
         'seasonality': _parse_seasonality(site_samples, sites['seasonality']),
         'vectors': _parse_vectors(site_samples, sites['vectors'])
     }
+
+def pad_sites(sites: dict, start_year: int, end_year: int) -> dict:
+    return {
+        key: _pad_site(df, start_year, end_year)
+        if key in {'interventions', 'demography'}
+        else df
+        for key, df in sites.items()
+    }
+
+def _pad_site(df: pd.DataFrame, start_year: int, end_year: int) -> pd.DataFrame:
+    df = df[df.year.between(start_year, end_year)]
+    min_year = df.year.min()
+    if start_year < min_year:
+        df_min = df[df.year == min_year]
+        padding = pd.concat([
+            df_min.assign(year=y)
+            for y in range(start_year, min_year)
+        ])
+        df = pd.concat([padding, df])
+    max_year = df.year.max()
+    if end_year > max_year:
+        df_max = df[df.year == max_year]
+        padding = pd.concat([
+            df_max.assign(year=y + 1)
+            for y in range(max_year, end_year)
+        ])
+        df = pd.concat([df, padding])
+    return df.reset_index()
 
 def _sample_site_dfs(
     key: random.PRNGKeyArray,
@@ -134,19 +156,9 @@ def _sample_site_dfs(
 
 def _parse_interventions(
     samples: pd.DataFrame,
-    df: pd.DataFrame,
-    start_year: int,
-    end_year: int
+    df: pd.DataFrame
     ) -> Dict:
-    df = df[df.year.between(start_year, end_year)]
-    min_year = df.year.min()
-    if start_year < min_year:
-        df_min = df[df.year == min_year]
-        padding = pd.concat([
-            df_min.assign(year=y)
-            for y in range(start_year, min_year)
-        ])
-        df = pd.concat([padding, df]).sort_values('year')
+    
     int_values = df.pivot(
         index=['iso3c', 'name_1', 'urban_rural'],
         columns='year',
@@ -198,19 +210,8 @@ def _parse_interventions(
 
 def _parse_demography(
     samples: pd.DataFrame,
-    df: pd.DataFrame,
-    start_year: int,
-    end_year: int
+    df: pd.DataFrame
     ) -> Array:
-    df = df[df.year.between(start_year, end_year)]
-    min_year = df.year.min()
-    if start_year < min_year:
-        df_min = df[df.year == min_year]
-        padding = pd.concat([
-            df_min.assign(year=y)
-            for y in range(start_year, min_year)
-        ])
-        df = pd.concat([padding, df]).sort_values('year')
     dem_values = df.pivot(
         index=['iso3c', 'year'],
         columns='age_upper',

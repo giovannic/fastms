@@ -3,6 +3,7 @@ from jax import random
 from flax.training import orbax_utils
 import orbax.checkpoint #type: ignore
 from .rnn import build, init, train
+from .aggregate import monthly
 
 def add_parser(subparsers):
     """add_parser. Adds the training parser to the main ArgumentParser
@@ -42,6 +43,12 @@ def add_parser(subparsers):
         help='Number of minibatches'
     )
     sample_parser.add_argument(
+        '--aggregate',
+        '-a',
+        choices=['monthly'],
+        help='Aggregate the samples for quicker/easier training'
+    )
+    sample_parser.add_argument(
         '--seed',
         type=int,
         default=42,
@@ -52,11 +59,11 @@ def run(args):
     with open(args.samples, 'rb') as f:
         samples = pickle.load(f)
     if args.model == 'rnn':
+        if args.aggregate == 'monthly':
+            samples = monthly(samples)
         model = build(samples)
         key = random.PRNGKey(args.seed)
         params = init(model, samples, key)
-        ckpt = { 'surrogate': model, 'params': params }
-        print(ckpt)
         key_i, key = random.split(key)
         params = train(
             model,

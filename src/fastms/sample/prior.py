@@ -2,7 +2,8 @@ from mox.sampling import DistStrategy, sample #type: ignore
 from numpyro import distributions as dist #type: ignore
 from jaxtyping import PyTree
 from jax import random
-from .sites import import_sites, sample_sites, sites_to_tree
+from jax import numpy as jnp
+from .sites import import_sites, pad_sites, sample_sites, sites_to_tree
 from .ibm import run_ibm
 
 _prior_intrinsic_space = {
@@ -57,8 +58,10 @@ def sample_prior(
         key
     )
     sites = import_sites(site_path)
+    start_year, end_year = 1985, 2018
+    sites = pad_sites(sites, start_year, end_year)
     site_samples = sample_sites(sites, n, key)
-    X_sites = sites_to_tree(site_samples, sites, 1985, 2018)
+    X_sites = sites_to_tree(site_samples, sites)
     y, X_eir = run_ibm(
         X_intrinsic,
         sites,
@@ -68,4 +71,5 @@ def sample_prior(
     )
     X = [X_intrinsic, X_eir, X_sites['seasonality'], X_sites['vectors']]
     X_seq = [X_sites['interventions'], X_sites['demography']]
-    return (X, X_seq), y
+    X_t = jnp.arange(0, end_year - start_year + 1) * 365
+    return (X, X_seq, X_t), y
