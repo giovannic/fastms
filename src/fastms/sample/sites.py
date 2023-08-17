@@ -125,7 +125,6 @@ def pad_sites(sites: dict, start_year: int, end_year: int) -> dict:
     }
 
 def _pad_site(df: pd.DataFrame, start_year: int, end_year: int) -> pd.DataFrame:
-    df = df[df.year.between(start_year, end_year)]
     min_year = df.year.min()
     if start_year < min_year:
         df_min = df[df.year == min_year]
@@ -142,6 +141,7 @@ def _pad_site(df: pd.DataFrame, start_year: int, end_year: int) -> pd.DataFrame:
             for y in range(max_year, end_year)
         ])
         df = pd.concat([df, padding])
+    df = df[df.year.between(start_year, end_year)]
     return df.reset_index()
 
 def _sample_site_dfs(

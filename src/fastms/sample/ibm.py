@@ -8,8 +8,6 @@ import pandas as pd
 from jax.tree_util import tree_map
 from jax import numpy as jnp
 
-BURNIN = 50
-
 _min_ages = list(range(0, 100 * 365, 365))
 _max_ages = [a + 365 for a in _min_ages]
 _species = ['arabiensis', 'funestus', 'gambiae']
@@ -17,13 +15,15 @@ _immunity = ['ica_mean', 'icm_mean', 'ib_mean', 'id_mean']
 _states = ['S', 'A', 'D', 'U', 'Tr']
 _vector_states = ['E', 'L', 'P', 'Sm', 'Pm', 'Im']
 _EIRs = [f'EIR_{s}' for s in _species]
+_vector_counts = [f'{s}_{v}_count' for v in _species for s in _vector_states]
 
 def run_ibm(
     X_intrinsic: PyTree,
     sites: dict,
     site_samples: pd.DataFrame,
     init_EIR: Array,
-    cores: int
+    cores: int,
+    burnin: int
     ) -> PyTree:
     n = init_EIR.shape[0]
     with Pool(cores) as pool:
@@ -31,7 +31,8 @@ def run_ibm(
             (
                 _extract_from_tree(X_intrinsic, i),
                 _extract_site(sites, site_samples, i),
-                init_EIR[i]
+                init_EIR[i],
+                burnin
             )
             for i in range(n)
         )
@@ -76,7 +77,8 @@ def _extract_site(
 def _run_ibm(
     X_intrinsic: dict,
     X_site: dict,
-    X_eir: float
+    X_eir: float,
+    burnin: int
     ) -> PyTree:
     site = importr('site')
     ms = importr('malariasimulation')
@@ -85,11 +87,11 @@ def _run_ibm(
     params = site.site_parameters(
         interventions = site.burnin_interventions(
             _convert_pandas_df(X_site['interventions']),
-            BURNIN
+            burnin
         ),
         demography = site.burnin_demography(
             _convert_pandas_df(X_site['demography']),
-            BURNIN
+            burnin
         ),
         vectors = _convert_pandas_df(X_site['vectors']),
         seasonality = _convert_pandas_df(X_site['seasonality']),
@@ -110,11 +112,16 @@ def _run_ibm(
     )
     df = _convert_r_df(output)
 
+    # fill in missing EIRs
+    for column in _EIRs + _vector_counts:
+        if column not in df.columns:
+            df[column] = 0
+
     # calculate baseline
-    baseline_eir = _baseline_eir(df)
+    baseline_eir = _baseline_eir(df, burnin)
 
     # remove burnin
-    df = df.iloc[BURNIN * 365:]
+    df = df.iloc[burnin * 365:]
 
     # format the outputs
     model_outputs = {
@@ -125,12 +132,9 @@ def _run_ibm(
         'p_inc_clinical': df[
             [f'p_inc_clinical_{a}_{b}' for a, b in zip(_min_ages, _max_ages)]
         ].values,
-        'total_M': df[[f'total_M_{s}' for s in _species]].values,
         'EIR': df[_EIRs].values,
         'human_states': df[[f'{s}_count' for s in _states]].values,
-        'vector_states': df[
-            [f'{s}_{v}_count' for v in _species for s in _vector_states]
-        ].values,
+        'vector_states': df[_vector_counts].values,
         'immunity': df[_immunity].values
     }
     return model_outputs, baseline_eir
@@ -151,6 +155,6 @@ def _parse_overrides(params):
     params.rx2['human_population'] = 100000
     return params
 
-def _baseline_eir(df: pd.DataFrame):
-    final_burnin = df.iloc[(BURNIN - 1)*365:BURNIN*365]
+def _baseline_eir(df: pd.DataFrame, burnin: int):
+    final_burnin = df.iloc[(burnin - 1)*365:burnin*365]
     return final_burnin[_EIRs].sum(axis=1).mean()

@@ -49,7 +49,10 @@ def sample_prior(
     site_path: str,
     n: int,
     key: random.PRNGKeyArray,
-    cores: int = 1
+    cores: int = 1,
+    burnin: int = 50,
+    start_year: int = 1985,
+    end_year: int = 2018
     ) -> PyTree:
     EIR = DistStrategy(dist.Uniform(0., 500.))
     X_intrinsic, init_EIR = sample(
@@ -58,7 +61,6 @@ def sample_prior(
         key
     )
     sites = import_sites(site_path)
-    start_year, end_year = 1985, 2018
     sites = pad_sites(sites, start_year, end_year)
     site_samples = sample_sites(sites, n, key)
     X_sites = sites_to_tree(site_samples, sites)
@@ -67,7 +69,8 @@ def sample_prior(
         sites,
         site_samples,
         init_EIR,
-        cores
+        cores,
+        burnin
     )
     X = [X_intrinsic, X_eir, X_sites['seasonality'], X_sites['vectors']]
     X_seq = [X_sites['interventions'], X_sites['demography']]

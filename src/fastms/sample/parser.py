@@ -50,6 +50,24 @@ def add_parser(subparsers):
         default=1,
         help='Number of cores to use'
     )
+    sample_parser.add_argument(
+        '--burnin',
+        type=int,
+        default=50,
+        help='Years of burnin for the IBM'
+    )
+    sample_parser.add_argument(
+        '--start',
+        type=int,
+        default=1985,
+        help='Start year for sites'
+    )
+    sample_parser.add_argument(
+        '--end',
+        type=int,
+        default=2018,
+        help='End year for sites'
+    )
 
 def run(args):
     if args.model == 'ibm':
@@ -60,7 +78,10 @@ def run(args):
                 args.sites,
                 args.number,
                 PRNGKey(args.seed),
-                cores=args.cores
+                cores=args.cores,
+                burnin=args.burnin,
+                start_year=args.start,
+                end_year=args.end
             )
             with open(args.output, 'wb') as f:
                 pickle.dump(samples, f)
