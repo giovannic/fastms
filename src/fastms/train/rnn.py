@@ -8,7 +8,7 @@ from mox.seq2seq.training import train_seq2seq_surrogate
 
 def build(samples: PyTree):
     (x, x_seq, x_t), y = _freeze_attr(samples)
-    n_steps = int(y['immunity'].shape[1])
+    n_steps = y['immunity'].shape[1]
     x_std = None
     x_seq_std = _freeze_attr([
         tree_map(lambda _: (0, 1), x_seq[0]), # interventions

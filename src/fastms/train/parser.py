@@ -61,6 +61,7 @@ def run(args):
     if args.model == 'rnn':
         if args.aggregate == 'monthly':
             samples = monthly(samples)
+
         model = build(samples)
         key = random.PRNGKey(args.seed)
         params = init(model, samples, key)
@@ -74,7 +75,6 @@ def run(args):
             args.n_batches
         )
         ckpt = { 'surrogate': model, 'params': params }
-        print(ckpt)
         orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
         save_args = orbax_utils.save_args_from_target(ckpt)
         orbax_checkpointer.save(
