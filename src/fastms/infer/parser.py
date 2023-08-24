@@ -1,12 +1,13 @@
 import orbax.checkpoint #type: ignore
 import pandas as pd
-from ..sample.sites import import_sites, sites_to_tree
-from jax import numpy as jnp
-from jax import vmap
-from jax.random import PRNGKey
+from ..sample.sites import import_sites, pad_sites, sites_to_tree
+from jax import numpy as jnp, random
+from jax.tree_util import tree_map
 from .ibm_model import surrogate_posterior
 from ..train.rnn import build, init
+from ..train.aggregate import monthly
 import pickle
+from flax.linen.module import _freeze_attr
 
 def add_parser(subparsers):
     """add_parser. Adds the inference parser to the main ArgumentParser
@@ -67,13 +68,24 @@ def add_parser(subparsers):
     )
 
 def _aggregate(xs, ns, age_lower, age_upper, time_lower, time_upper):
-    return vmap(
-        lambda x, n, a_l, a_u, t_l, t_u: jnp.mean(
-            jnp.sum(x[t_l:t_u, a_l:a_u], axis=1)/
-            jnp.sum(n[t_l:t_u, a_l:a_u], axis=1)
-        ),
-        in_axes=[0, 0, 0, 0, 0, 0]
-    )(xs, ns, age_lower, age_upper, time_lower, time_upper)
+    age_lower = age_lower[:, jnp.newaxis, jnp.newaxis]
+    age_upper = age_upper[:, jnp.newaxis, jnp.newaxis]
+    time_lower = time_lower[:, jnp.newaxis, jnp.newaxis]
+    time_upper = time_upper[:, jnp.newaxis, jnp.newaxis]
+    age_mask = jnp.arange(xs.shape[2])[jnp.newaxis, jnp.newaxis, :]
+    age_mask = (age_mask >= age_lower) & (age_mask <= age_upper)
+    time_mask = jnp.arange(xs.shape[1])[jnp.newaxis, :, jnp.newaxis]
+    time_mask = (time_mask >= time_lower) & (time_mask <= time_upper)
+    mask = age_mask & time_mask
+    xs = jnp.where(mask, xs, 0)
+    ns = jnp.where(mask, ns, 0)
+    xs_over_age = jnp.sum(xs, axis=2)
+    ns_over_age = jnp.sum(ns, axis=2)
+    prev_over_time = jnp.sum(
+        jnp.where(jnp.squeeze(time_mask, 2), xs_over_age / ns_over_age, 0),
+        axis=1
+    )
+    return prev_over_time / jnp.sum(time_mask, axis=(1, 2))
 
 def run(args):
     if args.model == 'ibm':
@@ -86,11 +98,13 @@ def run(args):
             raise ValueError('Samples required')
         with open(args.samples, 'rb') as f:
             samples = pickle.load(f)
-        model = build(samples)
-        params = init(model)
-        ckpt = { 'surrogate': model, 'params': params }
-        ckpt = orbax_checkpointer.restore(args.surrogate, item=ckpt)
-        model, params = ckpt['surrogate'], ckpt['params']
+        model = build(monthly(samples))
+        key = random.PRNGKey(args.seed)
+        params = init(model, samples, key)
+        empty = { 'surrogate': model, 'params': params }
+        restored = orbax_checkpointer.restore(args.surrogate, item=empty)
+        params = restored['params']
+        #NOTE: there's a bug in restoring the model
         if args.prevalence is None or args.incidence is None:
             raise ValueError('Both prevalence and incidence required')
         prev = pd.read_csv(args.prevalence)
@@ -118,44 +132,49 @@ def run(args):
         site_samples = pd.concat(
             [prev[site_description], inc[site_description]]
         ).drop_duplicates()
-        start_year = 1985
-        x_sites = sites_to_tree(site_samples, sites, start_year, 2018)
-        site_index = site_samples.reset_index().set_index(
+        n_sites = len(site_samples)
+        start_year, end_year = 1985, 2018
+        sites = pad_sites(sites, start_year, end_year)
+        x_sites = sites_to_tree(site_samples, sites)
+        site_index = site_samples.reset_index(drop=True).reset_index().set_index(
             site_description
         )
         prev_index = site_index.loc[
             list(prev[site_description].itertuples(index=False))
-        ].index
+        ]['index'].values
         inc_index = site_index.loc[
             list(inc[site_description].itertuples(index=False))
-        ].index
-        prev_lar, prev_uar = jnp.array(prev.PR_LAR), jnp.array(prev.PR_UAR)
-        inc_lar, inc_uar = jnp.array(inc.INC_LAR), jnp.array(inc.INC_UAR)
+        ]['index'].values
+        #NOTE: truncating very small ages
+        prev_lar = jnp.array(prev.PR_LAR, dtype=jnp.int32)
+        prev_uar = jnp.array(prev.PR_UAR, dtype=jnp.int32)
+        inc_lar = jnp.array(inc.INC_LAR, dtype=jnp.int32)
+        inc_uar = jnp.array(inc.INC_UAR, dtype=jnp.int32)
         prev_start_time = jnp.array(
-            prev.START_YEAR - start_year * 365,
+            (prev.START_YEAR - start_year),
             dtype=jnp.int32
-        )
+        ) * 12
         prev_end_time = jnp.array(
-            prev.END_YEAR - start_year * 365,
+            (prev.END_YEAR - start_year),
             dtype=jnp.int32
-        )
-        inc_start_time = jnp.floor(
-            inc.START_YEAR.values - start_year * 365 +
-            inc.START_MONTH.values * (365/12)
-        )
-        inc_end_time = jnp.floor(
-            inc.END_YEAR.values - start_year * 365 +
-            inc.END_MONTH.values * (365/12)
-        )
+        ) * 12
+        inc_start_time = jnp.array(
+            (inc.START_YEAR.values - start_year),
+            dtype=jnp.int32
+        ) * 12 + inc.START_MONTH.values
+        inc_end_time = jnp.array(
+            (inc.END_YEAR.values - start_year),
+            dtype=jnp.int32
+        ) * 12 + inc.END_MONTH.values
         def impl(x_intrinsic, x_eir):
             x = [
-                x_intrinsic,
+                tree_map(lambda leaf: jnp.full((n_sites,), leaf), x_intrinsic),
                 x_eir,
                 x_sites['seasonality'],
                 x_sites['vectors']
             ]
             x_seq = [x_sites['interventions'], x_sites['demography']]
-            model_outputs = model.apply(params, x, x_seq)
+            model_outputs = model.apply(params, _freeze_attr((x, x_seq)))
             site_prev = _aggregate(
                 model_outputs['p_detect'][prev_index],
                 model_outputs['n'][prev_index],
@@ -165,7 +184,7 @@ def run(args):
                 prev_end_time
             )
             site_inc = _aggregate(
-                model_outputs['p_detect'][inc_index],
+                model_outputs['p_inc_clinical'][inc_index],
                 model_outputs['n'][inc_index],
                 inc_lar,
                 inc_uar,
@@ -173,13 +192,14 @@ def run(args):
                 inc_end_time
             ) * inc.POP.values
             return site_prev, site_inc
-        key = PRNGKey(args.seed)
+        key_i, key = random.split(key)
         posterior_samples = surrogate_posterior(
-            key,
+            key_i,
             impl,
             prev.N.values,
             prev.N_POS.values,
-            inc.INC.values / 1000 * inc.POP.values
+            inc.INC.values / 1000 * inc.POP.values,
+            n_sites
         )
         with open(args.output, 'wb') as f:
             pickle.dump(posterior_samples, f)

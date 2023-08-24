@@ -10,10 +10,11 @@ from jax.random import PRNGKeyArray
 MIN_RATE = 1e-12
 
 def model(
+    n_sites: int,
     n_prev: Array,
     impl: Callable[[Dict, Array],Tuple[Array, Array]],
     prev: Optional[Array]=None,
-    inc: Optional[Array]=None
+    inc: Optional[Array]=None,
     ):
     """
     model. A numpyro model for fitting IBM parameters to prevalence/incidence
@@ -29,7 +30,13 @@ def model(
     :param inc: Array an array of observed incidence statistics
     """
     # Pre-erythrocytic immunity
-    eir = numpyro.sample('eir', dist.Uniform(0., 500.))
+    eir = numpyro.sample(
+        'eir',
+        dist.Uniform(
+            jnp.full((n_sites,), 0.),
+            jnp.full((n_sites,), 500.)
+        )
+    )
 
     kb = numpyro.sample('kb', dist.LogNormal(0., .25))
     ub = numpyro.sample('ub', dist.LogNormal(0., .25))
@@ -138,6 +145,7 @@ def surrogate_posterior(
     n_prev: Array,
     prev: Array,
     inc: Array,
+    n_sites: int,
 	n_samples: int = 100,
 	n_warmup: int = 100,
 	n_chains: int = 10
@@ -152,5 +160,5 @@ def surrogate_posterior(
 		num_chains=n_chains,
 		chain_method='vectorized' #pmap leads to segfault for some reason (https://github.com/google/jax/issues/13858)
 	)
-	mcmc.run(key, n_prev, impl, prev, inc)
+	mcmc.run(key, n_sites, n_prev, impl, prev, inc)
 	return mcmc.get_samples()
