@@ -66,6 +66,18 @@ def add_parser(subparsers):
         help='Random number generation seed',
         default=42
     )
+    sample_parser.add_argument(
+        '--warmup',
+        type=int,
+        help='Number of warmup inference samples',
+        default=100
+    )
+    sample_parser.add_argument(
+        '--n_samples',
+        type=int,
+        help='Number of inference samples',
+        default=100
+    )
 
 def _aggregate(xs, ns, age_lower, age_upper, time_lower, time_upper):
     age_lower = age_lower[:, jnp.newaxis, jnp.newaxis]
@@ -199,7 +211,9 @@ def run(args):
             prev.N.values,
             prev.N_POS.values,
             inc.INC.values / 1000 * inc.POP.values,
-            n_sites
+            n_sites,
+            n_warmup=args.warmup,
+            n_samples=args.n_samples
         )
         with open(args.output, 'wb') as f:
             pickle.dump(posterior_samples, f)
