@@ -7,6 +7,7 @@ import orbax.checkpoint #type: ignore
 from .rnn import build, init, train
 from .aggregate import monthly
 from glob import glob
+from multiprocessing.pool import Pool
 
 def add_parser(subparsers):
     """add_parser. Adds the training parser to the main ArgumentParser
@@ -57,17 +58,27 @@ def add_parser(subparsers):
         default=42,
         help='Seed to use for pseudo random number generation'
     )
+    sample_parser.add_argument(
+        '--cores',
+        type=int,
+        default=1,
+        help='Seed to use for pseudo random number generation'
+    )
 
 def _load_pickle(path):
     with open(path, 'rb') as f:
         return pickle.load(f)
 
 def run(args):
-    sample_files = [
-        _load_pickle(path)
-        for expression in args.samples
-        for path in glob(expression)
-    ]
+    with Pool(args.cores) as p:
+        sample_files = p.map(
+            _load_pickle,
+            [
+                path
+                for expression in args.samples
+                for path in glob(expression)
+            ]
+        )
     x_t = sample_files[0][0][2]
     samples = tree_map(lambda *leaves: jnp.concatenate(leaves), *sample_files)
 
