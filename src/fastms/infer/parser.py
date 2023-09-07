@@ -210,7 +210,7 @@ def run(args):
             impl,
             prev.N.values,
             prev.N_POS.values,
-            inc.INC.values / 1000 * inc.POP.values,
+            jnp.round(inc.INC.values / 1000 * inc.POP.values),
             n_sites,
             n_warmup=args.warmup,
             n_samples=args.n_samples
