@@ -1,13 +1,9 @@
-import pickle
 from jax import random
-from jax import numpy as jnp
-from jax.tree_util import tree_map
 from flax.training import orbax_utils
 import orbax.checkpoint #type: ignore
 from .rnn import build, init, train
 from .aggregate import monthly
-from glob import glob
-from multiprocessing.pool import Pool
+from ..samples import load_samples
 
 def add_parser(subparsers):
     """add_parser. Adds the training parser to the main ArgumentParser
@@ -62,29 +58,11 @@ def add_parser(subparsers):
         '--cores',
         type=int,
         default=1,
-        help='Seed to use for pseudo random number generation'
+        help='Number of cores to use for sample injestion'
     )
 
-def _load_pickle(path):
-    with open(path, 'rb') as f:
-        return pickle.load(f)
-
 def run(args):
-    with Pool(args.cores) as p:
-        sample_files = p.map(
-            _load_pickle,
-            [
-                path
-                for expression in args.samples
-                for path in glob(expression)
-            ]
-        )
-    x_t = sample_files[0][0][2]
-    samples = tree_map(lambda *leaves: jnp.concatenate(leaves), *sample_files)
-
-    # fix x_t
-    (x, x_seq, _), y = samples
-    samples = (x, x_seq, x_t), y
+    samples = load_samples(args.samples, args.cores)
 
     if args.model == 'rnn':
         if args.aggregate == 'monthly':

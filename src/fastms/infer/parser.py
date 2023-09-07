@@ -6,6 +6,7 @@ from jax.tree_util import tree_map
 from .ibm_model import surrogate_posterior
 from ..train.rnn import build, init
 from ..train.aggregate import monthly
+from ..samples import load_samples
 import pickle
 from flax.linen.module import _freeze_attr
 
@@ -51,7 +52,7 @@ def add_parser(subparsers):
     )
     sample_parser.add_argument(
         '--samples',
-        type=str,
+        nargs='*',
         help='Samples used for training the surrogate'
     )
     sample_parser.add_argument(
@@ -77,6 +78,12 @@ def add_parser(subparsers):
         type=int,
         help='Number of inference samples',
         default=100
+    )
+    sample_parser.add_argument(
+        '--cores',
+        type=int,
+        default=1,
+        help='Number of cores to use for sample injestion'
     )
 
 def _aggregate(xs, ns, age_lower, age_upper, time_lower, time_upper):
@@ -108,8 +115,7 @@ def run(args):
         orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
         if args.samples is None:
             raise ValueError('Samples required')
-        with open(args.samples, 'rb') as f:
-            samples = pickle.load(f)
+        samples = load_samples(args.samples, args.cores)
         model = build(monthly(samples))
         key = random.PRNGKey(args.seed)
         params = init(model, samples, key)
