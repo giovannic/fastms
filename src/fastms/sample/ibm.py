@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from jaxtyping import PyTree, Array
 from rpy2.robjects.packages import importr #type: ignore
 import rpy2.robjects as ro #type: ignore
@@ -75,7 +75,7 @@ def _extract_site(
     }
 
 def _run_ibm(
-    X_intrinsic: dict,
+    X_intrinsic: Optional[dict],
     X_site: dict,
     X_eir: float,
     burnin: int
@@ -84,6 +84,9 @@ def _run_ibm(
     ms = importr('malariasimulation')
 
     # parameterise site with burnin
+    if (X_intrinsic is None):
+        X_intrinsic = {}
+
     params = site.site_parameters(
         interventions = site.burnin_interventions(
             _convert_pandas_df(X_site['interventions']),

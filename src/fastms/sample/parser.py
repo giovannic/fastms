@@ -1,4 +1,5 @@
 from .prior import sample_prior
+from .calibration import sample_calibration
 from jax.random import PRNGKey
 import pickle
 
@@ -17,7 +18,7 @@ def add_parser(subparsers):
     )
     sample_parser.add_argument(
         'intrinsic_strategy',
-        choices=['prior', 'lhs'],
+        choices=['prior', 'lhs', 'none'],
         help='Strategy for modelling intrinsic parameters'
     )
     sample_parser.add_argument(
@@ -75,6 +76,21 @@ def run(args):
             if args.sites is None:
                 raise ValueError('--sites must be set')
             samples = sample_prior(
+                args.sites,
+                args.number,
+                PRNGKey(args.seed),
+                cores=args.cores,
+                burnin=args.burnin,
+                start_year=args.start,
+                end_year=args.end
+            )
+            with open(args.output, 'wb') as f:
+                pickle.dump(samples, f)
+        elif args.intrinsic_strategy == 'none':
+            # EIR sampling strategy
+            if args.sites is None:
+                raise ValueError('--sites must be set')
+            samples = sample_calibration(
                 args.sites,
                 args.number,
                 PRNGKey(args.seed),
