@@ -22,6 +22,25 @@ seasonality <- data.table::rbindlist(
   use.names=T
 )
 
+get_average_age <- function(d) {
+  years <- unique(d$year)
+  pop = 1000000
+  bs <- vapply(
+    years,
+    function(y) {
+      malariasimulation:::find_birthrates(pop, d[d$year == y,]$age_upper * 365, d[d$year == y,]$mortality_rate / 365)
+    },
+    numeric(1)
+  )
+  data.frame(iso3c=d$iso3c[[1]], year = years, average_age = pop / bs / 365)
+}
+
+average_age <- data.table::rbindlist(
+  lapply(sites, function(s) get_average_age(get(s)$demography)),
+  fill=T,
+  use.names=T
+)
+
 #NOTE: there is a bug in foresite interventions where Yemeni sites have duplicate entries
 interventions <- interventions[interventions$iso3c != 'YEM',]
 
@@ -34,6 +53,7 @@ seasonality <- merge(data.frame(seasonality[is.na(seasonality$name_2),]), includ
 
 write.csv(vectors, 'vectors.csv', row.names = FALSE)
 write.csv(demography, 'demography.csv', row.names = FALSE)
+write.csv(average_age, 'average_age.csv', row.names = FALSE)
 write.csv(interventions, 'interventions.csv', row.names = FALSE)
 write.csv(seasonality, 'seasonality.csv', row.names = FALSE)
 
@@ -54,12 +74,12 @@ observations <- observations[!duplicated(observations),]
 
 # Clean incidence observations
 inc_names <- c('iso3c', 'name_1', 'START_YEAR', 'START_MONTH', 'END_YEAR', 'END_MONTH',
-                 'FREQ_ACD_NUM', 'INC', 'INC_LAR', 'INC_UAR')
+                 'FREQ_ACD_NUM', 'POP', 'INC', 'INC_LAR', 'INC_UAR')
 inc_observations <- observations[inc_names]
 inc_observations <- aggregate(
   x = inc_observations[c('INC')],
   by= inc_observations[c('iso3c', 'name_1', 'START_YEAR', 'START_MONTH', 'END_YEAR', 'END_MONTH',
-                         'FREQ_ACD_NUM', 'INC_LAR', 'INC_UAR')],
+                         'FREQ_ACD_NUM', 'POP', 'INC_LAR', 'INC_UAR')],
   FUN=mean
 )
 
