@@ -50,7 +50,6 @@ def sample_prior(
     n: int,
     key: random.PRNGKeyArray,
     cores: int = 1,
-    burnin: int = 50,
     start_year: int = 1985,
     end_year: int = 2018
     ) -> PyTree:
@@ -69,10 +68,17 @@ def sample_prior(
         sites,
         site_samples,
         init_EIR,
-        cores,
-        burnin
+        cores
     )
-    X = [X_intrinsic, X_eir, X_sites['seasonality'], X_sites['vectors']]
-    X_seq = [X_sites['interventions'], X_sites['demography']]
+    X = {
+        'intrinsic': X_intrinsic,
+        'baseline_eir': X_eir,
+        'seasonality': X_sites['seasonality'],
+        'vector_composition': X_sites['vectors']
+    }
+    X_seq = {
+        'interventions': X_sites['interventions'],
+        'demography': X_sites['demography']
+    }
     X_t = jnp.arange(0, end_year - start_year + 1) * 365
     return (X, X_seq, X_t), y

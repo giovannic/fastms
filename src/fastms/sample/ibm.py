@@ -1,12 +1,14 @@
 from typing import List, Optional
 from jaxtyping import PyTree, Array
-from rpy2.robjects.packages import importr #type: ignore
-import rpy2.robjects as ro #type: ignore
-from rpy2.robjects import pandas2ri #type: ignore
+from rpy2.robjects.packages import importr
+import rpy2.robjects as ro
+from rpy2.robjects import pandas2ri
+import rpy2.rinterface as ri
 from multiprocessing import Pool
 import pandas as pd
 from jax.tree_util import tree_map
 from jax import numpy as jnp
+import numpy as np
 
 _min_ages = list(range(0, 100 * 365, 365))
 _max_ages = [a + 365 for a in _min_ages]
@@ -23,7 +25,6 @@ def run_ibm(
     site_samples: pd.DataFrame,
     init_EIR: Array,
     cores: int,
-    burnin: int
     ) -> PyTree:
     n = init_EIR.shape[0]
     with Pool(cores) as pool:
@@ -31,8 +32,7 @@ def run_ibm(
             (
                 _extract_from_tree(X_intrinsic, i),
                 _extract_site(sites, site_samples, i),
-                init_EIR[i],
-                burnin
+                init_EIR[i]
             )
             for i in range(n)
         )
@@ -77,8 +77,7 @@ def _extract_site(
 def _run_ibm(
     X_intrinsic: Optional[dict],
     X_site: dict,
-    X_eir: float,
-    burnin: int
+    X_eir: float
     ) -> PyTree:
     site = importr('site')
     ms = importr('malariasimulation')
@@ -87,14 +86,16 @@ def _run_ibm(
     if (X_intrinsic is None):
         X_intrinsic = {}
 
-    params = site.site_parameters(
+    max_t = 5 * 365
+
+    warmup_params = site.site_parameters(
         interventions = site.burnin_interventions(
             _convert_pandas_df(X_site['interventions']),
-            burnin
+            max_t
         ),
         demography = site.burnin_demography(
             _convert_pandas_df(X_site['demography']),
-            burnin
+            max_t
         ),
         vectors = _convert_pandas_df(X_site['vectors']),
         seasonality = _convert_pandas_df(X_site['seasonality']),
@@ -105,26 +106,52 @@ def _run_ibm(
     # set prev/inc age ranges
     min_ages = ro.vectors.FloatVector(_min_ages)
     max_ages = ro.vectors.FloatVector(_max_ages)
-    params.rx2['prevalence_rendering_min_ages'] = min_ages
-    params.rx2['prevalence_rendering_max_ages'] = max_ages
-    params.rx2['clinical_incidence_rendering_min_ages'] = min_ages
-    params.rx2['clinical_incidence_rendering_max_ages'] = max_ages
-    output = ms.run_simulation(
-        timesteps = params.rx2['timesteps'],
-        parameters = params
+    warmup_params.rx2['prevalence_rendering_min_ages'] = min_ages
+    warmup_params.rx2['prevalence_rendering_max_ages'] = max_ages
+    warmup_params.rx2['clinical_incidence_rendering_min_ages'] = min_ages
+    warmup_params.rx2['clinical_incidence_rendering_max_ages'] = max_ages
+
+    # function for creating model parameters after burnin
+    @ri.rternalize
+    def post_warmup_parameters(t_converged):
+        post_params = site.site_parameters(
+            interventions = site.burnin_interventions(
+                _convert_pandas_df(X_site['interventions']),
+                t_converged
+            ),
+            demography = site.burnin_demography(
+                _convert_pandas_df(X_site['demography']),
+                t_converged
+            ),
+            vectors = _convert_pandas_df(X_site['vectors']),
+            seasonality = _convert_pandas_df(X_site['seasonality']),
+            eir = float(X_eir),
+            overrides = _parse_overrides(X_intrinsic)
+        )
+        post_params.rx2['prevalence_rendering_min_ages'] = min_ages
+        post_params.rx2['prevalence_rendering_max_ages'] = max_ages
+        post_params.rx2['clinical_incidence_rendering_min_ages'] = min_ages
+        post_params.rx2['clinical_incidence_rendering_max_ages'] = max_ages
+        return post_params
+
+    output = ms.run_simulation_until_stable(
+        parameters = warmup_params,
+        post_parameters = post_warmup_parameters,
+        tolerance = 100, #1e-1,
+        max_t = max_t,
+        post_t = int((np.ptp(X_site['interventions'].year) + 1) * 365)
     )
-    df = _convert_r_df(output)
+    df = _convert_r_df(output.rx2['post'])
+    pre_df = _convert_r_df(output.rx2['pre'])
 
     # fill in missing EIRs
     for column in _EIRs + _vector_counts:
         if column not in df.columns:
             df[column] = 0
+            pre_df[column] = 0
 
     # calculate baseline
-    baseline_eir = _baseline_eir(df, burnin)
-
-    # remove burnin
-    df = df.iloc[burnin * 365:]
+    baseline_eir = _baseline_eir(pre_df)
 
     # format the outputs
     model_outputs = {
@@ -158,6 +185,6 @@ def _parse_overrides(params):
     params.rx2['human_population'] = 100000
     return params
 
-def _baseline_eir(df: pd.DataFrame, burnin: int):
-    final_burnin = df.iloc[(burnin - 1)*365:burnin*365]
+def _baseline_eir(df: pd.DataFrame):
+    final_burnin = df.iloc[-365:]
     return final_burnin[_EIRs].sum(axis=1).mean()
