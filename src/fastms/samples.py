@@ -22,9 +22,9 @@ def load_samples(expressions: List[str], cores: int = 1) -> SAMPLE_TYPE:
     pickles: List[SAMPLE_TYPE]
     if cores == 1:
         pickles = [_load_pickle(path) for path in paths]
-
-    with Pool(cores) as p:
-        pickles = p.map(_load_pickle, paths)
+    else:
+        with Pool(cores) as p:
+            pickles = p.map(_load_pickle, paths)
 
     x_t = pickles[0][0][2]
     samples = tree_map(lambda *leaves: jnp.concatenate(leaves), *pickles)

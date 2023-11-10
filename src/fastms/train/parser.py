@@ -1,9 +1,11 @@
 from jax import random
 from flax.training import orbax_utils
-import orbax.checkpoint #type: ignore
 from .rnn import build, init, train
 from .aggregate import monthly
 from ..samples import load_samples
+import jax
+
+cpu_device = jax.devices('cpu')[0]
 
 def add_parser(subparsers):
     """add_parser. Adds the training parser to the main ArgumentParser
@@ -62,11 +64,13 @@ def add_parser(subparsers):
     )
 
 def run(args):
-    samples = load_samples(args.samples, args.cores)
+    with jax.default_device(cpu_device):
+        samples = load_samples(args.samples, args.cores)
 
     if args.model == 'rnn':
         if args.aggregate == 'monthly':
-            samples = monthly(samples)
+            with jax.default_device(cpu_device):
+                samples = monthly(samples)
 
         model = build(samples)
         key = random.PRNGKey(args.seed)
