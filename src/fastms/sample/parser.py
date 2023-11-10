@@ -52,12 +52,6 @@ def add_parser(subparsers):
         help='Number of cores to use'
     )
     sample_parser.add_argument(
-        '--burnin',
-        type=int,
-        default=50,
-        help='Years of burnin for the IBM'
-    )
-    sample_parser.add_argument(
         '--start',
         type=int,
         default=1985,
@@ -80,7 +74,6 @@ def run(args):
                 args.number,
                 PRNGKey(args.seed),
                 cores=args.cores,
-                burnin=args.burnin,
                 start_year=args.start,
                 end_year=args.end
             )
@@ -95,7 +88,6 @@ def run(args):
                 args.number,
                 PRNGKey(args.seed),
                 cores=args.cores,
-                burnin=args.burnin,
                 start_year=args.start,
                 end_year=args.end
             )

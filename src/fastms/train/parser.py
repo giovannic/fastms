@@ -1,6 +1,5 @@
 from jax import random
-from flax.training import orbax_utils
-from .rnn import build, init, train
+from .rnn import build, init, train, save
 from .aggregate import monthly
 from ..samples import load_samples
 import jax
@@ -84,14 +83,6 @@ def run(args):
             args.epochs,
             args.n_batches
         )
-        ckpt = { 'surrogate': model, 'params': params }
-        orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-        save_args = orbax_utils.save_args_from_target(ckpt)
-        orbax_checkpointer.save(
-            args.output,
-            ckpt,
-            force=True,
-            save_args=save_args
-        )
+        save(args.output, model, params)
     else:
         raise NotImplementedError('Model not implemented yet')
