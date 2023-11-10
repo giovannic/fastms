@@ -1,5 +1,5 @@
 from jax import random
-from .rnn import build, init, train, save
+from .rnn import build, init, train, save, make_rnn
 from .aggregate import monthly
 from ..samples import load_samples
 
@@ -68,16 +68,18 @@ def run(args):
 
         model = build(samples)
         key = random.PRNGKey(args.seed)
-        params = init(model, samples, key)
+        net = make_rnn(model, samples)
+        params = init(model, net, samples, key)
         key_i, key = random.split(key)
         params = train(
             model,
+            net,
             params,
             samples,
             key_i,
             args.epochs,
             args.n_batches
         )
-        save(args.output, model, params)
+        save(args.output, model, net, params)
     else:
         raise NotImplementedError('Model not implemented yet')

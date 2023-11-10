@@ -9,6 +9,12 @@ from mox.loss import mse
 from mox.seq2seq.rnn import DecoderLSTMCell, RNNSurrogate, make_rnn_surrogate, init_surrogate
 from mox.seq2seq.training import train_rnn_surrogate
 
+def make_rnn(model, samples, units=255):
+    feature_size = model.vectorise_output(samples[1]).shape[-1]
+    return nn.RNN(
+        DecoderLSTMCell(units, feature_size)
+    )
+
 def build(samples: PyTree):
     (x, x_seq, x_t), y = samples
     n_steps = y['immunity'].shape[1]
@@ -34,16 +40,25 @@ def build(samples: PyTree):
         y_max
     )
 
-def init(model: RNNSurrogate, samples, key):
+def init(model: RNNSurrogate, net: nn.RNN, samples, key):
     (x, x_seq, _), _ = samples
-    return init_surrogate(key, model, (x, x_seq))
+    return init_surrogate(key, model, net, (x, x_seq))
 
-def train(model, params, samples, key, epochs, n_batches):
+def train(
+    model: RNNSurrogate,
+    net: nn.RNN,
+    params: PyTree,
+    samples: PyTree,
+    key,
+    epochs,
+    n_batches
+    ):
     (x, x_seq, _), y = samples
     params = train_rnn_surrogate(
         (x, x_seq),
         y,
         model,
+        net,
         params,
         mse,
         key,
@@ -69,10 +84,16 @@ def save(path: str, model: RNNSurrogate, net: nn.RNN, params: PyTree):
 def load(path: str, dummy_samples: PyTree):
     orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
     empty_model = build(dummy_samples)
+    empty_net = make_rnn(empty_model, dummy_samples)
     empty = {
         'surrogate': dataclasses.asdict(empty_model),
-        'cell': dataclasses.asdict(DecoderLSTMCell(1, 1)),
-        'params': init(empty_model, dummy_samples, random.PRNGKey(0))
+        'cell': dataclasses.asdict(empty_net.cell),
+        'params': init(
+            empty_model,
+            empty_net,
+            dummy_samples,
+            random.PRNGKey(0)
+        )
     }
     ckpt = orbax_checkpointer.restore(path, item=empty)
     model = RNNSurrogate(**ckpt['surrogate'])

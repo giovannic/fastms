@@ -1,4 +1,4 @@
-import orbax.checkpoint #type: ignore
+import orbax.checkpoint
 import pandas as pd
 from ..sample.sites import import_sites, pad_sites, sites_to_tree
 from jax import numpy as jnp, random
