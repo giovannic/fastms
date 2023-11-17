@@ -86,7 +86,7 @@ def _run_ibm(
     if (X_intrinsic is None):
         X_intrinsic = {}
 
-    max_t = 5 * 365
+    max_t = 50 * 365
 
     warmup_params = site.site_parameters(
         interventions = site.burnin_interventions(
@@ -137,7 +137,7 @@ def _run_ibm(
     output = ms.run_simulation_until_stable(
         parameters = warmup_params,
         post_parameters = post_warmup_parameters,
-        tolerance = 100, #1e-1,
+        tolerance = 1e-1,
         max_t = max_t,
         post_t = int((np.ptp(X_site['interventions'].year) + 1) * 365)
     )
@@ -151,7 +151,7 @@ def _run_ibm(
             pre_df[column] = 0
 
     # calculate baseline
-    baseline_eir = _baseline_eir(pre_df)
+    baseline_eir = jnp.array(_baseline_eir(pre_df))
 
     # format the outputs
     model_outputs = {
@@ -167,6 +167,9 @@ def _run_ibm(
         'vector_states': df[_vector_counts].values,
         'immunity': df[_immunity].values
     }
+
+    # convert outputs to jax
+    model_outputs = { k: jnp.array(v) for k, v in model_outputs.items() }
     return model_outputs, baseline_eir
 
 def _convert_pandas_df(df):
