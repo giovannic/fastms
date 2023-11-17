@@ -1,18 +1,21 @@
-from jax import random
-from .rnn import build, init, train, save, make_rnn
-from .aggregate import monthly
+from ..rnn import load
+from ..aggregate import monthly
 from ..samples import load_samples
+from mox.seq2seq.rnn import apply_surrogate
+import pickle
+from jax.tree_util import tree_map
+from jax import numpy as jnp
 import jax
 
 cpu_device = jax.devices('cpu')[0]
 
 def add_parser(subparsers):
-    """add_parser. Adds the training parser to the main ArgumentParser
+    """add_parser. Adds the validation parser to the main ArgumentParser
     :param subparsers: the subparsers to modify
     """
     sample_parser = subparsers.add_parser(
-        'train',
-        help='Trains a surrogate model'
+        'validate',
+        help='Validates a surrogate model'
     )
     sample_parser.add_argument(
         'model',
@@ -20,28 +23,19 @@ def add_parser(subparsers):
         help='Surrogate model to use'
     )
     sample_parser.add_argument(
+        'model_path',
+        type=str,
+        help='Path of the saved surrogate model'
+    )
+    sample_parser.add_argument(
         'output',
         type=str,
-        help='Path to save the model in'
+        help='Path to save the predictions in'
     )
     sample_parser.add_argument(
         '--samples',
         nargs='*',
-        help='Paths for the samples to use for training'
-    )
-    sample_parser.add_argument(
-        '--epochs',
-        '-e',
-        type=int,
-        default=100,
-        help='Number of epochs for training'
-    )
-    sample_parser.add_argument(
-        '--n_batches',
-        '-b',
-        type=int,
-        default=100,
-        help='Number of minibatches'
+        help='Paths for the samples to use for validation'
     )
     sample_parser.add_argument(
         '--aggregate',
@@ -71,20 +65,12 @@ def run(args):
             with jax.default_device(cpu_device):
                 samples = monthly(samples)
 
-        model = build(samples)
-        key = random.PRNGKey(args.seed)
-        net = make_rnn(model, samples)
-        params = init(model, net, samples, key)
-        key_i, key = random.split(key)
-        state = train(
-            model,
-            net,
-            params,
-            samples,
-            key_i,
-            args.epochs,
-            args.n_batches
-        )
-        save(args.output, model, net, state.params)
+        surrogate, net, params = load(args.model_path, samples)
+        (x, x_seq, _), y = samples
+        y_pred = apply_surrogate(surrogate, net, params, (x, x_seq))
+        error = tree_map(lambda x, y: jnp.mean(jnp.square(x - y)), y_pred, y)
+        print(error)
+        with open(args.output, 'wb') as f:
+            pickle.dump(y_pred, f)
     else:
         raise NotImplementedError('Model not implemented yet')

@@ -1,5 +1,5 @@
-from .prior import sample_prior
-from .calibration import sample_calibration
+from ..sample.prior import sample_prior
+from ..sample.calibration import sample_calibration
 from jax.random import PRNGKey
 import pickle
 

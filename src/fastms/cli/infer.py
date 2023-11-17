@@ -3,9 +3,9 @@ import pandas as pd
 from ..sample.sites import import_sites, pad_sites, sites_to_tree
 from jax import numpy as jnp, random
 from jax.tree_util import tree_map
-from .ibm_model import surrogate_posterior
-from ..train.rnn import build, init
-from ..train.aggregate import monthly
+from ..ibm_model import surrogate_posterior
+from ..rnn import build, init
+from ..aggregate import monthly
 from ..samples import load_samples
 import pickle
 from flax.linen.module import _freeze_attr
