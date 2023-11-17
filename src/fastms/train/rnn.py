@@ -1,5 +1,6 @@
 import dataclasses
 import orbax.checkpoint
+from typing import Tuple
 from flax.training import orbax_utils
 from flax import linen as nn
 from jaxtyping import PyTree
@@ -81,7 +82,7 @@ def save(path: str, model: RNNSurrogate, net: nn.RNN, params: PyTree):
         save_args=save_args
     )
 
-def load(path: str, dummy_samples: PyTree):
+def load(path: str, dummy_samples: PyTree) -> Tuple[RNNSurrogate, nn.Module, PyTree]:
     orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
     empty_model = build(dummy_samples)
     empty_net = make_rnn(empty_model, dummy_samples)
@@ -97,6 +98,6 @@ def load(path: str, dummy_samples: PyTree):
     }
     ckpt = orbax_checkpointer.restore(path, item=empty)
     model = RNNSurrogate(**ckpt['surrogate'])
-    net = nn.RNN(**ckpt['cell'])
+    net = nn.RNN(DecoderLSTMCell(**ckpt['cell']))
     params = ckpt['params']
     return model, net, params
