@@ -2,6 +2,7 @@ import dataclasses
 import orbax.checkpoint
 from typing import Tuple
 from flax.training import orbax_utils
+from flax.training.train_state import TrainState
 from flax import linen as nn
 from jaxtyping import PyTree
 from jax import numpy as jnp, random
@@ -53,9 +54,9 @@ def train(
     key,
     epochs,
     n_batches
-    ):
+    ) -> TrainState:
     (x, x_seq, _), y = samples
-    params = train_rnn_surrogate(
+    state = train_rnn_surrogate(
         (x, x_seq),
         y,
         model,
@@ -66,7 +67,7 @@ def train(
         epochs = epochs,
         batch_size = x[1].shape[0] // n_batches
     )
-    return params
+    return state
 
 def save(path: str, model: RNNSurrogate, net: nn.RNN, params: PyTree):
     orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()

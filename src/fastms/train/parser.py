@@ -76,7 +76,7 @@ def run(args):
         net = make_rnn(model, samples)
         params = init(model, net, samples, key)
         key_i, key = random.split(key)
-        params = train(
+        state = train(
             model,
             net,
             params,
@@ -85,6 +85,6 @@ def run(args):
             args.epochs,
             args.n_batches
         )
-        save(args.output, model, net, params)
+        save(args.output, model, net, state.params)
     else:
         raise NotImplementedError('Model not implemented yet')
