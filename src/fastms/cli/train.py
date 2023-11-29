@@ -1,7 +1,6 @@
 from jax import random
 from ..rnn import build, init, train, save, make_rnn
-from ..aggregate import monthly
-from ..samples import load_samples
+from ..sample.save import load_samples
 import jax
 
 cpu_device = jax.devices('cpu')[0]
@@ -30,6 +29,11 @@ def add_parser(subparsers):
         help='Paths for the samples to use for training'
     )
     sample_parser.add_argument(
+        '--samples_def',
+        type=str,
+        help='PyTree definition for the samples'
+    )
+    sample_parser.add_argument(
         '--epochs',
         '-e',
         type=int,
@@ -43,12 +47,7 @@ def add_parser(subparsers):
         default=100,
         help='Number of minibatches'
     )
-    sample_parser.add_argument(
-        '--aggregate',
-        '-a',
-        choices=['monthly'],
-        help='Aggregate the samples for quicker/easier training'
-    )
+    
     sample_parser.add_argument(
         '--seed',
         type=int,
@@ -64,13 +63,9 @@ def add_parser(subparsers):
 
 def run(args):
     with jax.default_device(cpu_device):
-        samples = load_samples(args.samples, args.cores)
+        samples = load_samples(args.samples, args.samples_def, args.cores)
 
     if args.model == 'rnn':
-        if args.aggregate == 'monthly':
-            with jax.default_device(cpu_device):
-                samples = monthly(samples)
-
         model = build(samples)
         key = random.PRNGKey(args.seed)
         net = make_rnn(model, samples)

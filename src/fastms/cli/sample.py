@@ -1,5 +1,7 @@
 from ..sample.prior import sample_prior
 from ..sample.calibration import sample_calibration
+from ..sample.save import save_compressed_pytree, save_pytree_def
+from ..aggregate import monthly
 from jax.random import PRNGKey
 import pickle
 
@@ -25,6 +27,18 @@ def add_parser(subparsers):
         'output',
         type=str,
         help='Path for the samples to be saved in'
+    )
+    sample_parser.add_argument(
+        'output_def',
+        type=str,
+        help='Path for the sample pytree def to be saved in'
+    )
+    sample_parser.add_argument(
+        '--aggregate',
+        '-a',
+        choices=['monthly', 'none'],
+        default='none',
+        help='Aggregate the samples for quicker/easier training'
     )
     sample_parser.add_argument(
         '--sites',
@@ -77,8 +91,9 @@ def run(args):
                 start_year=args.start,
                 end_year=args.end
             )
-            with open(args.output, 'wb') as f:
-                pickle.dump(samples, f)
+            samples = monthly(samples)
+            save_compressed_pytree(samples, args.output)
+            save_pytree_def(samples, args.output_def)
         elif args.intrinsic_strategy == 'none':
             # EIR sampling strategy
             if args.sites is None:
@@ -91,8 +106,10 @@ def run(args):
                 start_year=args.start,
                 end_year=args.end
             )
-            with open(args.output, 'wb') as f:
-                pickle.dump(samples, f)
+            if args.aggregate == 'monthly':
+                samples = monthly(samples)
+            save_compressed_pytree(samples, args.output)
+            save_pytree_def(samples, args.output_def)
         else:
             raise NotImplementedError('Sampling strategy not implemented yet')
     else:
