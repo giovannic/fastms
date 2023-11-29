@@ -6,7 +6,7 @@ from jax.tree_util import tree_map
 from ..ibm_model import surrogate_posterior
 from ..rnn import build, init
 from ..aggregate import monthly
-from ..samples import load_samples
+from ..sample.save import load_samples
 import pickle
 from flax.linen.module import _freeze_attr
 

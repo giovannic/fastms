@@ -1,6 +1,6 @@
 from ..rnn import load
 from ..aggregate import monthly
-from ..samples import load_samples
+from ..sample.save import load_samples
 from mox.seq2seq.rnn import apply_surrogate
 import pickle
 from jax.tree_util import tree_map
