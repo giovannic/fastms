@@ -9,9 +9,12 @@ def sample_calibration(
     site_path: str,
     n: int,
     key: random.PRNGKeyArray,
+    burnin: int,
     cores: int = 1,
     start_year: int = 1985,
-    end_year: int = 2018
+    end_year: int = 2018,
+    population: int = 100000,
+    dynamic_burnin: bool = False
     ) -> PyTree:
     init_EIR = dist.Uniform(0., 500.).sample(key, (n,))
     sites = import_sites(site_path)
@@ -23,7 +26,10 @@ def sample_calibration(
         sites,
         site_samples,
         init_EIR,
-        cores
+        burnin,
+        cores,
+        population=population,
+        dynamic_burnin=dynamic_burnin
     )
     X = {
         'baseline_eir': X_eir,

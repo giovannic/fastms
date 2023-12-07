@@ -3,7 +3,6 @@ from ..sample.calibration import sample_calibration
 from ..sample.save import save_compressed_pytree, save_pytree_def
 from ..aggregate import monthly
 from jax.random import PRNGKey
-import pickle
 
 def add_parser(subparsers):
     """add_parser. Adds the sample parser to the main ArgumentParser
@@ -77,6 +76,24 @@ def add_parser(subparsers):
         default=2018,
         help='End year for sites'
     )
+    sample_parser.add_argument(
+        '--population',
+        type=int,
+        default=100000,
+        help='Total population for the model runs'
+    )
+    sample_parser.add_argument(
+        '--burnin',
+        type=int,
+        default=50,
+        help='Number of years to run the burnin for'
+    )
+    sample_parser.add_argument(
+        '--dynamic_burnin',
+        type=bool,
+        default=False,
+        help='Whether to use a dynamic burnin or not'
+    )
 
 def run(args):
     if args.model == 'ibm':
@@ -87,9 +104,12 @@ def run(args):
                 args.sites,
                 args.number,
                 PRNGKey(args.seed),
+                args.burnin,
                 cores=args.cores,
                 start_year=args.start,
-                end_year=args.end
+                end_year=args.end,
+                population=args.population,
+                dynamic_burnin=args.dynamic_burnin
             )
             samples = monthly(samples)
             save_compressed_pytree(samples, args.output)
@@ -102,9 +122,12 @@ def run(args):
                 args.sites,
                 args.number,
                 PRNGKey(args.seed),
+                args.burnin,
                 cores=args.cores,
                 start_year=args.start,
-                end_year=args.end
+                end_year=args.end,
+                population=args.population,
+                dynamic_burnin=args.dynamic_burnin
             )
             if args.aggregate == 'monthly':
                 samples = monthly(samples)

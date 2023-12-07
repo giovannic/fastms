@@ -49,9 +49,12 @@ def sample_prior(
     site_path: str,
     n: int,
     key: random.PRNGKeyArray,
+    burnin,
     cores: int = 1,
     start_year: int = 1985,
-    end_year: int = 2018
+    end_year: int = 2018,
+    population: int = 100000,
+    dynamic_burnin: bool = False
     ) -> PyTree:
     EIR = DistStrategy(dist.Uniform(0., 500.))
     X_intrinsic, init_EIR = sample(
@@ -68,7 +71,10 @@ def sample_prior(
         sites,
         site_samples,
         init_EIR,
-        cores
+        burnin,
+        cores,
+        population=population,
+        dynamic_burnin=dynamic_burnin
     )
     X = {
         'intrinsic': X_intrinsic,
