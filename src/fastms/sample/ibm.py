@@ -10,8 +10,6 @@ from jax.tree_util import tree_map
 from jax import numpy as jnp
 import numpy as np
 
-_min_ages = list(range(0, 100 * 365, 365))
-_max_ages = [a + 365 for a in _min_ages]
 _species = ['arabiensis', 'funestus', 'gambiae']
 _immunity = ['ica_mean', 'icm_mean', 'ib_mean', 'id_mean']
 _states = ['S', 'A', 'D', 'U', 'Tr']
@@ -111,18 +109,22 @@ def _run_ibm_fixed_burnin(
     )
 
     # set prev/inc age ranges
-    min_ages = ro.vectors.FloatVector(_min_ages)
-    max_ages = ro.vectors.FloatVector(_max_ages)
-    params.rx2['prevalence_rendering_min_ages'] = min_ages
-    params.rx2['prevalence_rendering_max_ages'] = max_ages
-    params.rx2['clinical_incidence_rendering_min_ages'] = min_ages
-    params.rx2['clinical_incidence_rendering_max_ages'] = max_ages
+    params.rx2['render_grid'] = True
 
     output = ms.run_simulation(
         timesteps = params.rx2['timesteps'],
         parameters = params
     )
-    df = _convert_r_df(output)
+    df = _convert_r_df(output.rx2['dataframe'])
+    n = remove_burnin(jnp.array(output.rx2['grid'].rx2['n']), burnin)
+    n_detect = remove_burnin(
+        jnp.array(output.rx2['grid'].rx2['n_detect']),
+        burnin
+    )
+    n_inc_clinical = remove_burnin(
+        jnp.array(output.rx2['grid'].rx2['n_inc_clinical']),
+        burnin
+    )
 
     # fill in missing EIRs
     for column in _EIRs + _vector_counts:
@@ -136,7 +138,7 @@ def _run_ibm_fixed_burnin(
     df = df.iloc[burnin * 365:]
 
     # convert outputs to jax
-    model_outputs = format_outputs(df)
+    model_outputs = format_outputs(df, n, n_detect, n_inc_clinical)
     return model_outputs, baseline_eir
 
 def _run_ibm_until_stable(
@@ -168,12 +170,7 @@ def _run_ibm_until_stable(
     )
 
     # set prev/inc age ranges
-    min_ages = ro.vectors.FloatVector(_min_ages)
-    max_ages = ro.vectors.FloatVector(_max_ages)
-    warmup_params.rx2['prevalence_rendering_min_ages'] = min_ages
-    warmup_params.rx2['prevalence_rendering_max_ages'] = max_ages
-    warmup_params.rx2['clinical_incidence_rendering_min_ages'] = min_ages
-    warmup_params.rx2['clinical_incidence_rendering_max_ages'] = max_ages
+    warmup_params.rx2['render_grid'] = True
 
     # function for creating model parameters after burnin
     @ri.rternalize
@@ -192,10 +189,7 @@ def _run_ibm_until_stable(
             eir = float(X_eir),
             overrides = _parse_overrides(X_intrinsic)
         )
-        post_params.rx2['prevalence_rendering_min_ages'] = min_ages
-        post_params.rx2['prevalence_rendering_max_ages'] = max_ages
-        post_params.rx2['clinical_incidence_rendering_min_ages'] = min_ages
-        post_params.rx2['clinical_incidence_rendering_max_ages'] = max_ages
+        post_params.rx2['render_grid'] = True
         return post_params
 
     output = ms.run_simulation_until_stable(
@@ -218,25 +212,29 @@ def _run_ibm_until_stable(
     baseline_eir = jnp.array(_baseline_eir(pre_df))
 
     # format the outputs
-    model_outputs = format_outputs(df)
+    if not 'grid' in output:
+        raise NotImplementedError('TODO: format outputs')
+
+    model_outputs = format_outputs(df, None, None, None)
 
     return model_outputs, baseline_eir
 
-def format_outputs(df: pd.DataFrame):
+def remove_burnin(x: Array, burnin: int) -> Array:
+    return x[burnin*365:]
+
+def format_outputs(df: pd.DataFrame, n, n_detect, n_inc_clinical):
     outputs = {
-        'n': df[[f'n_{a}_{b}' for a, b in zip(_min_ages, _max_ages)]].values,
-        'p_detect': df[
-            [f'p_detect_{a}_{b}' for a, b in zip(_min_ages, _max_ages)]
-        ].values,
-        'p_inc_clinical': df[
-            [f'p_inc_clinical_{a}_{b}' for a, b in zip(_min_ages, _max_ages)]
-        ].values,
-        'EIR': df[_EIRs].values,
-        'human_states': df[[f'{s}_count' for s in _states]].values,
-        'vector_states': df[_vector_counts].values,
-        'immunity': df[_immunity].values
+        'n': n,
+        'n_detect': n_detect,
+        'n_inc_clinical': n_inc_clinical,
+        'EIR': jnp.array(df[_EIRs].values),
+        'human_states': jnp.array(
+            df[[f'{s}_count' for s in _states]].values
+        ),
+        'vector_states': jnp.array(df[_vector_counts].values),
+        'immunity': jnp.array(df[_immunity].values)
     }
-    return { k: jnp.array(v) for k, v in outputs.items() }
+    return outputs
 
 
 def _convert_pandas_df(df):
