@@ -70,8 +70,8 @@ def load_samples(
     (x, x_seq, _), y = samples
 
     if (n > -1):
-        x = tree_map(lambda l: l[:args.n], x)
-        x_seq = tree_map(lambda l: l[:args.n], x_seq)
-        y = tree_map(lambda l: l[:args.n], y)
+        x = tree_map(lambda l: l[:n], x)
+        x_seq = tree_map(lambda l: l[:n], x_seq)
+        y = tree_map(lambda l: l[:n], y)
 
     return (x, x_seq, x_t), y

@@ -1,6 +1,10 @@
 from jax import random
 from ..rnn import build, init, train, save, make_rnn
 from ..sample.save import load_samples
+from ..density.train import (
+    make_rnn as make_density_rnn,
+    train as train_density
+)
 import jax
 
 cpu_device = jax.devices('cpu')[0]
@@ -61,6 +65,12 @@ def add_parser(subparsers):
         help='Seed to use for pseudo random number generation'
     )
     sample_parser.add_argument(
+        '--density',
+        type=bool,
+        default=True,
+        help='Whether to model probabilistic model outputs'
+    )
+    sample_parser.add_argument(
         '--cores',
         type=int,
         default=1,
@@ -72,26 +82,40 @@ def run(args):
         samples = load_samples(
             args.samples,
             args.samples_def,
-            args.cores,
-            args.n
+            cores=args.cores,
+            n=args.n
         )
 
     if args.model == 'rnn':
         model = build(samples)
         key = random.PRNGKey(args.seed)
-        net = make_rnn(model, samples)
+        if args.density:
+            net = make_density_rnn(model, samples)
+        else:
+            net = make_rnn(model, samples)
         with jax.default_device(cpu_device):
             params = init(model, net, samples, key)
         key_i, key = random.split(key)
-        state = train(
-            model,
-            net,
-            params,
-            samples,
-            key_i,
-            args.epochs,
-            args.batch_size
-        )
+        if args.density:
+            state = train_density(
+                model,
+                net,
+                params,
+                samples,
+                key_i,
+                args.epochs,
+                args.batch_size
+            )
+        else:
+            state = train(
+                model,
+                net,
+                params,
+                samples,
+                key_i,
+                args.epochs,
+                args.batch_size
+            )
         save(args.output, model, net, state.params)
     else:
         raise NotImplementedError('Model not implemented yet')
