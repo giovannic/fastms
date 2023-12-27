@@ -42,7 +42,8 @@ def load_pytree(treedef: PyTreeDef, path: str) -> PyTree:
 def load_samples(
     sample_path_expr: List[str],
     def_path: str,
-    cores: int = 1
+    cores: int = 1,
+    n: int = -1
     ) -> PyTree:
     paths = [
         path
@@ -67,4 +68,10 @@ def load_samples(
 
     # fix x_t
     (x, x_seq, _), y = samples
+
+    if (n > -1):
+        x = tree_map(lambda l: l[:args.n], x)
+        x_seq = tree_map(lambda l: l[:args.n], x_seq)
+        y = tree_map(lambda l: l[:args.n], y)
+
     return (x, x_seq, x_t), y

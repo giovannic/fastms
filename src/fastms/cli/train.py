@@ -41,13 +41,19 @@ def add_parser(subparsers):
         help='Number of epochs for training'
     )
     sample_parser.add_argument(
-        '--n_batches',
+        '--batch_size',
         '-b',
         type=int,
         default=100,
-        help='Number of minibatches'
+        help='Size of batches'
     )
-    
+    sample_parser.add_argument(
+        '--n',
+        '-n',
+        type=int,
+        default=-1,
+        help='Number of samples to use'
+    )
     sample_parser.add_argument(
         '--seed',
         type=int,
@@ -63,13 +69,19 @@ def add_parser(subparsers):
 
 def run(args):
     with jax.default_device(cpu_device):
-        samples = load_samples(args.samples, args.samples_def, args.cores)
+        samples = load_samples(
+            args.samples,
+            args.samples_def,
+            args.cores,
+            args.n
+        )
 
     if args.model == 'rnn':
         model = build(samples)
         key = random.PRNGKey(args.seed)
         net = make_rnn(model, samples)
-        params = init(model, net, samples, key)
+        with jax.default_device(cpu_device):
+            params = init(model, net, samples, key)
         key_i, key = random.split(key)
         state = train(
             model,
@@ -78,7 +90,7 @@ def run(args):
             samples,
             key_i,
             args.epochs,
-            args.n_batches
+            args.batch_size
         )
         save(args.output, model, net, state.params)
     else:

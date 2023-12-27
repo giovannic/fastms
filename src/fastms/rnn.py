@@ -4,7 +4,7 @@ from typing import Tuple
 from flax.training import orbax_utils
 from flax.training.train_state import TrainState
 from flax import linen as nn
-from jaxtyping import PyTree
+from jaxtyping import PyTree, Array
 from jax import numpy as jnp, random
 from jax.tree_util import tree_map
 from mox.loss import mse
@@ -21,10 +21,10 @@ def build(samples: PyTree):
     (x, x_seq, x_t), y = samples
     n_steps = y['immunity'].shape[1]
     x_std = None
-    x_seq_std = [
-        tree_map(lambda _: (0, 1), x_seq[0]), # interventions
-        None # demography
-    ]
+    x_seq_std = {
+        'demography': None,
+        'interventions': tree_map(lambda _: (0, 1), x_seq['interventions'])
+    }
     y_std = None
     y_min = tree_map(lambda _: 0, y)
     max_n = jnp.finfo(jnp.float64).max
@@ -51,11 +51,13 @@ def train(
     net: nn.RNN,
     params: PyTree,
     samples: PyTree,
-    key,
-    epochs,
-    n_batches
+    key: Array,
+    epochs: int,
+    batch_size: int
     ) -> TrainState:
     (x, x_seq, _), y = samples
+    print(y['immunity'].shape)
+    n_batches = y['immunity'].shape[0] // batch_size
     state = train_rnn_surrogate(
         (x, x_seq),
         y,
@@ -65,7 +67,7 @@ def train(
         mse,
         key,
         epochs = epochs,
-        batch_size = x[1].shape[0] // n_batches
+        batch_size = n_batches
     )
     return state
 
