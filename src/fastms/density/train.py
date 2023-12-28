@@ -37,7 +37,7 @@ def train(
         model,
         net,
         params,
-        log_prob(y_min, jnp.inf),
+        log_prob(y_min, jnp.array(jnp.inf)),
         key,
         epochs = epochs,
         batch_size = n_batches

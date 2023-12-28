@@ -33,8 +33,8 @@ def model(
     eir = numpyro.sample(
         'eir',
         dist.Uniform(
-            jnp.full((n_sites,), 0.),
-            jnp.full((n_sites,), 500.)
+            jnp.full((n_sites,), 0.), #type: ignore
+            jnp.full((n_sites,), 500.) #type: ignore
         )
     )
 
@@ -112,13 +112,13 @@ def model(
         'gamma1': gamma1
     }
     
-    prev_stats, inc_stats = impl(x, eir)
+    prev_stats, inc_stats = impl(x, eir) #type: ignore
     
     numpyro.sample(
         'obs_prev',
         dist.Independent(
             dist.Binomial(
-                total_count=n_prev,
+                total_count=n_prev, #type: ignore
                 probs=prev_stats,
                 validate_args=True
             ),
