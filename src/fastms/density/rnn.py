@@ -38,17 +38,18 @@ class DensityDecoderLSTMCell(nn.RNNCellBase):
         return 1
 
 def log_prob(
-    y_min: Union[Array, float],
-    y_max: Union[Array, float]
+    y_min: Array,
+    y_max: Array,
     ) -> Callable[[Tuple[Array, Array], Array], Array]:
     def f(y_hat: Tuple[Array, Array], y: Array):
         mu, logsigma = y_hat
         sigma = jnp.exp(logsigma)
         return jnp.sum(truncnorm.logpdf(
-            y,
+            _standardise(y, mu, sigma),
             _standardise(y_min, mu, sigma),
             _standardise(y_max, mu, sigma),
-            loc=mu, # type: ignore
-            scale=sigma # type: ignore
         ))
     return f
+
+def _standardise(x: Array, mu: Array, sigma: Array) -> Array:
+    return (x - mu) / sigma

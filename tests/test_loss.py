@@ -1,6 +1,5 @@
 import jax.numpy as jnp
-from fastms.density.rnn import log_prob
-from mox.surrogates import _standardise
+from fastms.density.rnn import log_prob, _standardise
 
 def test_log_prob_is_finite_at_zero():
     y_min = jnp.zeros(1)
