@@ -17,7 +17,7 @@ def make_rnn(model, samples, units=255):
         DecoderLSTMCell(units, feature_size)
     )
 
-def build(samples: PyTree):
+def build(samples: PyTree, dtype=jnp.float32):
     (x, x_seq, x_t), y = samples
     n_steps = y['immunity'].shape[1]
     x_std = None
@@ -27,7 +27,7 @@ def build(samples: PyTree):
     }
     y_std = None
     y_min = tree_map(lambda _: 0, y)
-    max_n = jnp.finfo(jnp.float64).max
+    max_n = jnp.finfo(dtype).max
     y_max = tree_map(lambda _: max_n, y)
     return make_rnn_surrogate(
         x,

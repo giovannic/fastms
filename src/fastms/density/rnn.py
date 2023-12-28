@@ -3,6 +3,7 @@ from jaxtyping import Array
 from flax import linen as nn
 from jax import numpy as jnp
 from jax.scipy.stats import truncnorm
+from mox.surrogates import _standardise
 
 LSTMCarry = Tuple[Array, Array]
 
@@ -39,14 +40,15 @@ class DensityDecoderLSTMCell(nn.RNNCellBase):
 def log_prob(
     y_min: Union[Array, float],
     y_max: Union[Array, float]
-    ) -> Callable[[Array, Array], Array]:
-    def f(y_hat: Array, y: Array):
-        mu, sigma = y_hat
+    ) -> Callable[[Tuple[Array, Array], Array], Array]:
+    def f(y_hat: Tuple[Array, Array], y: Array):
+        mu, logsigma = y_hat
+        sigma = jnp.exp(logsigma)
         return jnp.sum(truncnorm.logpdf(
             y,
-            y_min,
-            y_max,
-            loc=mu,
-            scale=jnp.exp(sigma) # type: ignore
+            _standardise(y_min, mu, sigma),
+            _standardise(y_max, mu, sigma),
+            loc=mu, # type: ignore
+            scale=sigma # type: ignore
         ))
     return f
