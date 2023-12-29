@@ -2,8 +2,6 @@ from typing import Tuple, Callable, Union
 from jaxtyping import Array
 from flax import linen as nn
 from jax import numpy as jnp
-from jax.scipy.stats import truncnorm
-from mox.surrogates import _standardise
 
 LSTMCarry = Tuple[Array, Array]
 
@@ -13,6 +11,7 @@ class DensityDecoderLSTMCell(nn.RNNCellBase):
     """
     units: int
     feature_size: int
+    y_min: Array
 
     def setup(self):
         self.lstm = nn.LSTMCell(self.units)
@@ -27,6 +26,7 @@ class DensityDecoderLSTMCell(nn.RNNCellBase):
         """Applies the DecoderLSTM model."""
         carry, y = self.lstm(carry, x)
         mu = self.dense_mu(y)
+        mu = nn.softplus(mu) + self.y_min
         log_sigma = self.dense_log_std(y)
         return carry, (mu, log_sigma)
 
@@ -36,20 +36,3 @@ class DensityDecoderLSTMCell(nn.RNNCellBase):
     @property
     def num_feature_axes(self) -> int:
         return 1
-
-def log_prob(
-    y_min: Array,
-    y_max: Array,
-    ) -> Callable[[Tuple[Array, Array], Array], Array]:
-    def f(y_hat: Tuple[Array, Array], y: Array):
-        mu, logsigma = y_hat
-        sigma = jnp.exp(logsigma)
-        return jnp.sum(truncnorm.logpdf(
-            _standardise(y, mu, sigma),
-            _standardise(y_min, mu, sigma),
-            _standardise(y_max, mu, sigma),
-        ))
-    return f
-
-def _standardise(x: Array, mu: Array, sigma: Array) -> Array:
-    return (x - mu) / sigma
