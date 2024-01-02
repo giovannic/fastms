@@ -18,14 +18,14 @@ from mox.surrogates import (
 from mox.utils import unbatch_tree
 from jax.scipy.stats import norm
 
-def make_rnn(model, samples, units=255):
+def make_rnn(model, samples, units=255, dtype=jnp.float32):
     y = tree_map(lambda x: x[0], samples[1])
     y_zero = tree_map(lambda x: jnp.zeros_like(x), y)
     y_vec = model.vectorise_output(y)
     y_min = model.vectorise_output(y_zero)[0:1,:]
     feature_size = y_vec.shape[-1]
     return nn.RNN(
-        DensityDecoderLSTMCell(units, feature_size, y_min)
+        DensityDecoderLSTMCell(units, feature_size, y_min, dtype=dtype)
     )
 
 class RNNDensitySurrogate(RNNSurrogate):
@@ -93,7 +93,7 @@ def train(
         model,
         net,
         params,
-        log_prob,
+        nll,
         key,
         epochs = epochs,
         batch_size = n_batches
@@ -101,9 +101,10 @@ def train(
     return state
 
 def load(path: str, dummy_samples: PyTree) -> Tuple[RNNSurrogate, nn.Module, PyTree]:
+    dtype = dummy_samples[1]['immunity'].dtype
     orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
     empty_model = build(dummy_samples)
-    empty_net = make_rnn(empty_model, dummy_samples)
+    empty_net = make_rnn(empty_model, dummy_samples, dtype=dtype)
     empty = {
         'surrogate': dataclasses.asdict(empty_model),
         'cell': dataclasses.asdict(empty_net.cell),
@@ -120,7 +121,7 @@ def load(path: str, dummy_samples: PyTree) -> Tuple[RNNSurrogate, nn.Module, PyT
     params = ckpt['params']
     return model, net, params
 
-def log_prob(y_hat: Tuple[Array, Array], y: Array) -> Array:
+def nll(y_hat: Tuple[Array, Array], y: Array) -> Array:
     mu, log_sigma = y_hat
     sigma = jnp.exp(log_sigma)
-    return jnp.sum(norm.logpdf(y, mu, sigma))
+    return -jnp.sum(norm.logpdf(y, mu, sigma))

@@ -35,15 +35,24 @@ def save_pytree_def(x: PyTree, path: str) -> None:
         with open(path, 'wb') as f:
             pickle.dump(tree_structure(x), f)
 
-def load_pytree(treedef: PyTreeDef, path: str) -> PyTree:
+def load_pytree(treedef: PyTreeDef, path: str, dtype = jnp.float32) -> PyTree:
     with np.load(path) as data:
-        return tree_unflatten(treedef, data.values())
+        return tree_unflatten(
+            treedef,
+            [
+                jnp.array(a, dtype = dtype)
+                if jnp.issubdtype(a.dtype, jnp.floating)
+                else a
+                for a in data.values()
+            ]
+        )
 
 def load_samples(
     sample_path_expr: List[str],
     def_path: str,
     cores: int = 1,
-    n: int = -1
+    n: int = -1,
+    dtype = jnp.float32
     ) -> PyTree:
     paths = [
         path
@@ -56,10 +65,10 @@ def load_samples(
 
     pickles: List[PyTree]
     if cores == 1:
-        pickles = [load_pytree(treedef, path) for path in paths]
+        pickles = [load_pytree(treedef, path, dtype) for path in paths]
     else:
         def _load_pickle(path: str) -> PyTree:
-            return load_pytree(treedef, path)
+            return load_pytree(treedef, path, dtype)
         with Pool(cores) as p:
             pickles = p.map(_load_pickle, paths)
 

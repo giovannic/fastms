@@ -6,6 +6,8 @@ from ..density.train import (
     train as train_density
 )
 import jax
+from jax.tree_util import tree_map
+from jax import numpy as jnp
 
 cpu_device = jax.devices('cpu')[0]
 
@@ -76,21 +78,32 @@ def add_parser(subparsers):
         default=1,
         help='Number of cores to use for sample injestion'
     )
+    sample_parser.add_argument(
+        '--f64',
+        type=bool,
+        default=True,
+        help='Execute in 64 bit precision'
+    )
 
 def run(args):
+    if args.f64:
+        dtype = jnp.float64
+    else:
+        dtype = jnp.float32
     with jax.default_device(cpu_device):
         samples = load_samples(
             args.samples,
             args.samples_def,
             cores=args.cores,
-            n=args.n
+            n=args.n,
+            dtype=dtype
         )
 
     if args.model == 'rnn':
-        model = build(samples)
+        model = build(samples, dtype=dtype)
         key = random.PRNGKey(args.seed)
         if args.density:
-            net = make_density_rnn(model, samples)
+            net = make_density_rnn(model, samples, dtype=dtype)
         else:
             net = make_rnn(model, samples)
         with jax.default_device(cpu_device):

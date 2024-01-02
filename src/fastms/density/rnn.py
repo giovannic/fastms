@@ -12,9 +12,10 @@ class DensityDecoderLSTMCell(nn.RNNCellBase):
     units: int
     feature_size: int
     y_min: Array
+    dtype: jnp.float32
 
     def setup(self):
-        self.lstm = nn.LSTMCell(self.units)
+        self.lstm = nn.LSTMCell(self.units, param_dtype=self.dtype)
         self.dense_mu = nn.Dense(features=self.feature_size)
         self.dense_log_std = nn.Dense(features=self.feature_size)
 
