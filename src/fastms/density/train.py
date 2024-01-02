@@ -1,10 +1,10 @@
 import dataclasses
 import orbax.checkpoint
-from typing import Tuple, Any
+from typing import Tuple, Any, Callable
 from flax.training.train_state import TrainState
 from flax import linen as nn
 from jaxtyping import PyTree, Array
-from jax import random, numpy as jnp, vmap
+from jax import random, numpy as jnp
 from jax.tree_util import tree_map, tree_structure
 from .rnn import DensityDecoderLSTMCell
 from ..rnn import build, init
@@ -16,7 +16,7 @@ from mox.surrogates import (
     _inverse_standardise
 )
 from mox.utils import unbatch_tree
-from jax.scipy.stats import norm
+from jax.scipy.stats import truncnorm
 
 def make_rnn(model, samples, units=255, dtype=jnp.float32):
     y = tree_map(lambda x: x[0], samples[1])
@@ -87,13 +87,17 @@ def train(
     ) -> TrainState:
     (x, x_seq, _), y = samples
     n_batches = y['immunity'].shape[0] // batch_size
+    y_min = model.vectorise_output(
+        tree_map(lambda leaf: jnp.zeros_like(leaf[0]), y)
+    )
+    loss = trunc_nll(y_min, jnp.array(jnp.inf))
     state = train_rnn_surrogate(
         (x, x_seq),
         y,
         model,
         net,
         params,
-        nll,
+        loss,
         key,
         epochs = epochs,
         batch_size = n_batches
@@ -121,7 +125,19 @@ def load(path: str, dummy_samples: PyTree) -> Tuple[RNNSurrogate, nn.Module, PyT
     params = ckpt['params']
     return model, net, params
 
-def nll(y_hat: Tuple[Array, Array], y: Array) -> Array:
-    mu, log_sigma = y_hat
-    sigma = jnp.exp(log_sigma)
-    return -jnp.sum(norm.logpdf(y, mu, sigma))
+def trunc_nll(
+    y_min: Array,
+    y_max: Array,
+    ) -> Callable[[Tuple[Array, Array], Array], Array]:
+    def f(y_hat: Tuple[Array, Array], y: Array):
+        mu, logsigma = y_hat
+        sigma = jnp.exp(logsigma)
+        return jnp.sum(truncnorm.logpdf(
+            _standardise(y, mu, sigma),
+            _standardise(y_min, mu, sigma),
+            _standardise(y_max, mu, sigma),
+        ))
+    return f
+
+def _standardise(x: Array, mu: Array, sigma: Array) -> Array:
+    return (x - mu) / sigma
