@@ -6,7 +6,6 @@ from ..density.train import (
     train as train_density
 )
 import jax
-from jax.tree_util import tree_map
 from jax import numpy as jnp
 
 cpu_device = jax.devices('cpu')[0]

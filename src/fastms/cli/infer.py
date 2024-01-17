@@ -1,14 +1,14 @@
-import orbax.checkpoint
 import pandas as pd
 from ..sample.sites import import_sites, pad_sites, sites_to_tree
 from jax import numpy as jnp, random
 from jax.tree_util import tree_map
 from ..ibm_model import surrogate_posterior
-from ..rnn import build, init
-from ..aggregate import monthly
 from ..sample.save import load_samples
+from ..density.train import load
 import pickle
-from flax.linen.module import _freeze_attr
+from mox.seq2seq.rnn import apply_surrogate
+import numpyro
+import numpyro.distributions as dist
 
 def add_parser(subparsers):
     """add_parser. Adds the inference parser to the main ArgumentParser
@@ -54,6 +54,11 @@ def add_parser(subparsers):
         '--samples',
         nargs='*',
         help='Samples used for training the surrogate'
+    )
+    sample_parser.add_argument(
+        '--samples_def',
+        type=str,
+        help='PyTree definition for the samples'
     )
     sample_parser.add_argument(
         '--surrogate',
@@ -112,17 +117,14 @@ def run(args):
             raise NotImplementedError(
                 'Only surrogate based inference is implemented'
             )
-        orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
         if args.samples is None:
             raise ValueError('Samples required')
-        samples = load_samples(args.samples, args.cores)
-        model = build(monthly(samples))
-        key = random.PRNGKey(args.seed)
-        params = init(model, samples, key)
-        empty = { 'surrogate': model, 'params': params }
-        restored = orbax_checkpointer.restore(args.surrogate, item=empty)
-        params = restored['params']
-        #NOTE: there's a bug in restoring the model
+        samples = load_samples(
+            args.samples,
+            args.samples_def,
+            args.cores
+        )
+        surrogate, net, params = load(args.surrogate, samples)
         if args.prevalence is None or args.incidence is None:
             raise ValueError('Both prevalence and incidence required')
         prev = pd.read_csv(args.prevalence)
@@ -184,43 +186,93 @@ def run(args):
             (inc.END_YEAR.values - start_year),
             dtype=jnp.int32
         ) * 12 + inc.END_MONTH.values
+
+        #TODO: update model to match notebook
+        #TODO: update model to sample likelihood
         def impl(x_intrinsic, x_eir):
-            x = [
-                tree_map(lambda leaf: jnp.full((n_sites,), leaf), x_intrinsic),
-                x_eir,
-                x_sites['seasonality'],
-                x_sites['vectors']
-            ]
-            x_seq = [x_sites['interventions'], x_sites['demography']]
-            model_outputs = model.apply(params, _freeze_attr((x, x_seq)))
+            x = {
+                'intrinsic': tree_map(lambda leaf: jnp.full((n_sites,), leaf), x_intrinsic),
+                'baseline_eir': x_eir,
+                'seasonality': x_sites['seasonality'],
+                'vector_composition': x_sites['vectors']
+             }
+            x_seq = {
+                'interventions': x_sites['interventions'],
+                'demography': x_sites['demography']
+            }
+            x_in = (x, x_seq)
+
+            mu, log_sigma = apply_surrogate(
+                surrogate,
+                net,
+                params,
+                x_in
+            )
+            sigma = tree_map(jnp.exp, log_sigma)
+
+            n_detect = numpyro.sample('n_detect', dist.LeftTruncatedDistribution(
+                dist.Normal(
+                    mu['n_detect'][prev_index],
+                    sigma['n_detect'][prev_index],
+                ),
+                0
+            ))
+            n_detect_n = numpyro.sample('n_detect_n', dist.LeftTruncatedDistribution(
+                dist.Normal(
+                    mu['n'][prev_index],
+                    sigma['n'][prev_index],
+                ),
+                0
+            ))
+            n_inc_clinical = numpyro.sample('inc', dist.LeftTruncatedDistribution(
+                dist.Normal(
+                    mu['n_inc_clinical'][inc_index],
+                    sigma['n_inc_clinical'][inc_index]
+                ),
+                0
+            ))
+            inc_n = numpyro.sample('inc_n', dist.LeftTruncatedDistribution(
+                dist.Normal(
+                    mu['n'][inc_index],
+                    sigma['n'][inc_index],
+                ),
+                0
+            ))
+
             site_prev = _aggregate(
-                model_outputs['p_detect'][prev_index],
-                model_outputs['n'][prev_index],
+                n_detect,
+                n_detect_n,
                 prev_lar,
                 prev_uar,
                 prev_start_time,
                 prev_end_time
             )
             site_inc = _aggregate(
-                model_outputs['p_inc_clinical'][inc_index],
-                model_outputs['n'][inc_index],
+                n_inc_clinical,
+                inc_n,
                 inc_lar,
                 inc_uar,
                 inc_start_time,
                 inc_end_time
-            ) * inc.POP.values
+            )
             return site_prev, site_inc
+        key = random.PRNGKey(args.seed)
         key_i, key = random.split(key)
         posterior_samples = surrogate_posterior(
             key_i,
-            impl,
-            prev.N.values,
-            prev.N_POS.values,
-            jnp.round(inc.INC.values / 1000 * inc.POP.values),
-            n_sites,
+            impl=impl,
             n_warmup=args.warmup,
-            n_samples=args.n_samples
+            n_samples=args.n_samples,
+            n_sites=n_sites,
+            n_prev=prev.N.values,
+            prev=prev.N_POS.values,
+            prev_index=prev_index,
+            inc_risk_time=inc.PYO.values * 365., #type: ignore
+            inc=inc.INC.values,
+            inc_index=inc_index
         )
+
+        #TODO: save sampler instead of samples
         with open(args.output, 'wb') as f:
             pickle.dump(posterior_samples, f)
     else:
