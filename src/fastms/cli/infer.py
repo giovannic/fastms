@@ -5,7 +5,6 @@ from jax.tree_util import tree_map
 from ..ibm_model import surrogate_posterior
 from ..sample.save import load_samples
 from ..density.train import load
-import pickle
 from mox.seq2seq.rnn import apply_surrogate
 import numpyro
 import numpyro.distributions as dist
@@ -258,7 +257,7 @@ def run(args):
             return site_prev, site_inc
         key = random.PRNGKey(args.seed)
         key_i, key = random.split(key)
-        posterior_samples = surrogate_posterior(
+        i_data = surrogate_posterior(
             key_i,
             impl=impl,
             n_warmup=args.warmup,
@@ -272,8 +271,6 @@ def run(args):
             inc_index=inc_index
         )
 
-        #TODO: save sampler instead of samples
-        with open(args.output, 'wb') as f:
-            pickle.dump(posterior_samples, f)
+        i_data.to_netcdf(args.output)
     else:
         raise NotImplementedError('Model not implemented yet')

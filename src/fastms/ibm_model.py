@@ -1,11 +1,12 @@
-from jaxtyping import Array, PyTree
+from jaxtyping import Array
 from typing import Callable, Optional, Dict, Tuple
 import numpyro #type: ignore
 from jax import numpy as jnp, lax
 from numpyro import distributions as dist
-from numpyro.infer import MCMC, NUTS #type: ignore
+from numpyro.infer import MCMC, NUTS, Predictive
+import arviz as az
 
-from jax.random import PRNGKeyArray
+from jax import random
 
 MIN_RATE = 1e-12
 
@@ -164,24 +165,42 @@ def model(
     )
 
 def surrogate_posterior(
-    key: PRNGKeyArray,
-	n_samples: int = 100,
-	n_warmup: int = 100,
-	n_chains: int = 10,
-    **model_args
-	):
-	# NOTE: Reverse mode has lead to initialisation errors for dmeq
-	kernel = NUTS(model)
+        key: Array,
+        n_samples: int = 100,
+        n_warmup: int = 100,
+        n_chains: int = 10,
+        **model_args
+        ):
+    # NOTE: Reverse mode has lead to initialisation errors for dmeq
+    kernel = NUTS(model)
 
-	mcmc = MCMC(
-		kernel,
-		num_samples=n_samples,
-		num_warmup=n_warmup,
-		num_chains=n_chains,
-		chain_method='vectorized' #pmap leads to segfault for some reason (https://github.com/google/jax/issues/13858)
-	)
-	mcmc.run(key, **model_args)
-	return mcmc
+    prior_key, key = random.split(key, 2)
+    prior = Predictive(model, num_samples=500)(
+        prior_key,
+        **model_args
+    )
+
+    sample_key, key = random.split(key, 2)
+    mcmc = MCMC(
+            kernel,
+            num_samples=n_samples,
+            num_warmup=n_warmup,
+            num_chains=n_chains,
+            chain_method='vectorized' #pmap leads to segfault for some reason (https://github.com/google/jax/issues/13858)
+            )
+    mcmc.run(sample_key, **model_args)
+
+    post_key, key = random.split(key, 2)
+    posterior_predictive = Predictive(model, mcmc.get_samples())(
+        post_key,
+        **model_args
+    )
+    data = az.from_numpyro(
+        mcmc,
+        prior=prior,
+        posterior_predictive=posterior_predictive
+    )
+    return data
 
 def straight_through(f, x):
     # Create an exactly-zero expression with Sterbenz lemma that has
