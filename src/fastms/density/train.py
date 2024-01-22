@@ -90,7 +90,12 @@ def train(
     y_min = model.vectorise_output(
         tree_map(lambda leaf: jnp.zeros_like(leaf[0]), y)
     )
-    loss = trunc_nll(y_min, jnp.array(jnp.inf))
+
+    big_n = 1e16
+    y_max = model.vectorise_output(
+        tree_map(lambda leaf: jnp.full(leaf[0].shape, big_n), y)
+    )
+    loss = trunc_nll(y_min, y_max)
     state = train_rnn_surrogate(
         (x, x_seq),
         y,
@@ -132,10 +137,12 @@ def trunc_nll(
     def f(y_hat: Tuple[Array, Array], y: Array):
         mu, logsigma = y_hat
         sigma = jnp.exp(logsigma)
-        return jnp.sum(truncnorm.logpdf(
-            _standardise(y, mu, sigma),
+        return -jnp.sum(truncnorm.logpdf(
+            y,
             _standardise(y_min, mu, sigma),
             _standardise(y_max, mu, sigma),
+            loc=mu,
+            scale=sigma
         ))
     return f
 

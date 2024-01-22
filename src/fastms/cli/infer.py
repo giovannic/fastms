@@ -267,7 +267,7 @@ def run(args):
             prev=prev.N_POS.values,
             prev_index=prev_index,
             inc_risk_time=inc.PYO.values * 365., #type: ignore
-            inc=inc.INC.values,
+            inc=jnp.array(jnp.round(inc.INC.values), dtype=jnp.int64),
             inc_index=inc_index
         )
 

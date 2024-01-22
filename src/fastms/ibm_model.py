@@ -49,10 +49,6 @@ def model(
             'mu',
             dist.Gamma(2., 2.)
         )
-        z = numpyro.sample(
-            'z',
-            dist.Beta(10., 1.)
-        )
 
     kb = numpyro.sample('kb', dist.LogNormal(0., 1.))
     ub = numpyro.sample('ub', dist.LogNormal(0., 1.))
@@ -128,17 +124,12 @@ def model(
     
     prev_stats, inc_stats = impl(x, eir) #type: ignore
 
-    round_n = lax.convert_element_type(
-        straight_through(jnp.ceil, n_prev * z[prev_index]),
-        jnp.int64
-    )
-
     numpyro.sample(
         'obs_prev',
         dist.Independent(
             dist.Binomial(
-                total_count=round_n, #type: ignore
-                probs=jnp.minimum(prev_stats * z[prev_index], 1.),
+                total_count=n_prev, #type: ignore
+                probs=jnp.minimum(prev_stats, 1.),
                 validate_args=True
             ),
             1
