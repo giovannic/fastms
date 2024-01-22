@@ -2,7 +2,7 @@ import pandas as pd
 from ..sample.sites import import_sites, pad_sites, sites_to_tree
 from jax import numpy as jnp, random
 from jax.tree_util import tree_map
-from ..ibm_model import surrogate_posterior
+from ..ibm_model import surrogate_posterior, surrogate_posterior_svi
 from ..sample.save import load_samples
 from ..density.train import load
 from mox.seq2seq.rnn import apply_surrogate
@@ -89,6 +89,18 @@ def add_parser(subparsers):
         default=1,
         help='Number of cores to use for sample injestion'
     )
+    sample_parser.add_argument(
+        '--svi',
+        type=bool,
+        default=True,
+        help='Whether to use stochastic variational inference'
+    )
+    sample_parser.add_argument(
+        '--n_train_svi',
+        type=int,
+        default=10000,
+        help='Number of training samples for SVI'
+    )
 
 def _aggregate(xs, ns, age_lower, age_upper, time_lower, time_upper):
     age_lower = age_lower[:, jnp.newaxis, jnp.newaxis]
@@ -102,8 +114,8 @@ def _aggregate(xs, ns, age_lower, age_upper, time_lower, time_upper):
     mask = age_mask & time_mask
     xs = jnp.where(mask, xs, 0)
     ns = jnp.where(mask, ns, 0)
-    xs_over_age = jnp.sum(xs, axis=2)
-    ns_over_age = jnp.sum(ns, axis=2)
+    xs_over_age = jnp.sum(xs, axis=2) #type: ignore
+    ns_over_age = jnp.sum(ns, axis=2) #type: ignore
     prev_over_time = jnp.sum(
         jnp.where(jnp.squeeze(time_mask, 2), xs_over_age / ns_over_age, 0),
         axis=1
@@ -178,16 +190,14 @@ def run(args):
             dtype=jnp.int32
         ) * 12
         inc_start_time = jnp.array(
-            (inc.START_YEAR.values - start_year),
+            (inc.START_YEAR.values - start_year), #type: ignore
             dtype=jnp.int32
         ) * 12 + inc.START_MONTH.values
         inc_end_time = jnp.array(
-            (inc.END_YEAR.values - start_year),
+            (inc.END_YEAR.values - start_year), #type: ignore
             dtype=jnp.int32
         ) * 12 + inc.END_MONTH.values
 
-        #TODO: update model to match notebook
-        #TODO: update model to sample likelihood
         def impl(x_intrinsic, x_eir):
             x = {
                 'intrinsic': tree_map(lambda leaf: jnp.full((n_sites,), leaf), x_intrinsic),
@@ -257,19 +267,34 @@ def run(args):
             return site_prev, site_inc
         key = random.PRNGKey(args.seed)
         key_i, key = random.split(key)
-        i_data = surrogate_posterior(
-            key_i,
-            impl=impl,
-            n_warmup=args.warmup,
-            n_samples=args.n_samples,
-            n_sites=n_sites,
-            n_prev=prev.N.values,
-            prev=prev.N_POS.values,
-            prev_index=prev_index,
-            inc_risk_time=inc.PYO.values * 365., #type: ignore
-            inc=jnp.array(jnp.round(inc.INC.values), dtype=jnp.int64),
-            inc_index=inc_index
-        )
+        if args.svi:
+            i_data = surrogate_posterior_svi(
+                key_i,
+                n_train_samples=args.n_train_svi,
+                n_samples=args.n_samples,
+                impl=impl,
+                n_sites=n_sites,
+                n_prev=prev.N.values,
+                prev=prev.N_POS.values,
+                prev_index=prev_index,
+                inc_risk_time=inc.PYO.values * 365., #type: ignore
+                inc=jnp.array(jnp.round(inc.INC.values), dtype=jnp.int64), #type: ignore
+                inc_index=inc_index
+            )
+        else:
+            i_data = surrogate_posterior(
+                key_i,
+                impl=impl,
+                n_warmup=args.warmup,
+                n_samples=args.n_samples,
+                n_sites=n_sites,
+                n_prev=prev.N.values,
+                prev=prev.N_POS.values,
+                prev_index=prev_index,
+                inc_risk_time=inc.PYO.values * 365., #type: ignore
+                inc=jnp.array(jnp.round(inc.INC.values), dtype=jnp.int64), #type: ignore
+                inc_index=inc_index
+            )
 
         i_data.to_netcdf(args.output)
     else:

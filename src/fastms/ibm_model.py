@@ -2,8 +2,15 @@ from jaxtyping import Array
 from typing import Callable, Optional, Dict, Tuple
 import numpyro #type: ignore
 from jax import numpy as jnp, lax
-from numpyro import distributions as dist
-from numpyro.infer import MCMC, NUTS, Predictive
+from numpyro import distributions as dist, optim
+from numpyro.infer import (
+    MCMC,
+    NUTS,
+    Predictive,
+    SVI,
+    Trace_ELBO
+)
+from numpyro.infer.autoguide import AutoIAFNormal
 import arviz as az
 
 from jax import random
@@ -155,6 +162,70 @@ def model(
         obs=inc
     )
 
+def surrogate_posterior_svi(
+        key: Array,
+        n_train_samples: int = 10000,
+        n_samples: int = 100,
+        **model_args
+        ):
+    
+    # sample prior
+    prior_key, key = random.split(key, 2)
+    prior_args = {
+        k: v for k, v in model_args.items()
+        if k not in ['prev', 'inc']
+    }
+    prior = Predictive(model, num_samples=n_samples)(
+        prior_key,
+        **prior_args
+    )
+    prior_predictive = Predictive(model, prior, num_samples=n_samples)(
+        prior_key,
+        **prior_args
+    )
+
+    # initialise SVI
+    guide = AutoIAFNormal(model)
+    svi = SVI(
+        model,
+        guide,
+        optim.Adam(1e-3),
+        loss=Trace_ELBO(),
+        **model_args
+    )
+
+    # train SVI
+    sample_key, key = random.split(key, 2)
+    svi_result = svi.run(sample_key, n_train_samples, **model_args)
+    svi_params = svi_result.params
+
+    # sample posterior
+    post_key, key = random.split(key, 2)
+    posterior_samples = Predictive(
+        guide,
+        params=svi_params,
+        num_samples=n_samples
+    )(post_key)
+
+    # sample posterior predictive
+    post_predictive = Predictive(
+        model,
+        posterior_samples,
+        num_samples=n_samples
+    )(post_key, **model_args)
+
+    data = az.from_dict(
+        posterior=_to_arviz_dict(posterior_samples),
+        posterior_predictive=_to_arviz_dict(post_predictive),
+        prior=_to_arviz_dict(prior),
+        prior_predictive=_to_arviz_dict(prior_predictive),
+        observed_data={
+            'prev': model_args['prev'],
+            'inc': model_args['inc']
+        }
+    )
+    return data
+
 def surrogate_posterior(
         key: Array,
         n_samples: int = 100,
@@ -198,3 +269,9 @@ def straight_through(f, x):
     # an exactly-one gradient.
     zero = x - lax.stop_gradient(x)
     return zero + lax.stop_gradient(f(x))
+
+def _to_arviz_dict(samples):
+    return {
+        k: v[None, ...]
+        for k, v in samples.items()
+    }
