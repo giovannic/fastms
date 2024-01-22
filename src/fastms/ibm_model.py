@@ -212,7 +212,7 @@ def surrogate_posterior_svi(
         model,
         posterior_samples,
         num_samples=n_samples
-    )(post_key, **model_args)
+    )(post_key, **prior_args)
 
     data = az.from_dict(
         posterior=_to_arviz_dict(posterior_samples),
@@ -237,25 +237,29 @@ def surrogate_posterior(
     kernel = NUTS(model)
 
     prior_key, key = random.split(key, 2)
+    prior_args = {
+        k: v for k, v in model_args.items()
+        if k not in ['prev', 'inc']
+    }
     prior = Predictive(model, num_samples=500)(
         prior_key,
-        **model_args
+        **prior_args
     )
 
     sample_key, key = random.split(key, 2)
     mcmc = MCMC(
-            kernel,
-            num_samples=n_samples,
-            num_warmup=n_warmup,
-            num_chains=n_chains,
-            chain_method='vectorized' #pmap leads to segfault for some reason (https://github.com/google/jax/issues/13858)
-            )
+        kernel,
+        num_samples=n_samples,
+        num_warmup=n_warmup,
+        num_chains=n_chains,
+        chain_method='vectorized' #pmap leads to segfault for some reason (https://github.com/google/jax/issues/13858)
+    )
     mcmc.run(sample_key, **model_args)
 
     post_key, key = random.split(key, 2)
     posterior_predictive = Predictive(model, mcmc.get_samples())(
         post_key,
-        **model_args
+        **prior_args
     )
     data = az.from_numpyro(
         mcmc,
