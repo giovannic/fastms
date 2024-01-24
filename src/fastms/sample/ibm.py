@@ -109,20 +109,20 @@ def _run_ibm_fixed_burnin(
     )
 
     # set prev/inc age ranges
-    params.rx2['render_grid'] = True
+    params.rx2['render_grid'] = ro.vectors.StrVector(['p_detect_', 'p_inc_clinical_'])
 
     output = ms.run_simulation(
         timesteps = params.rx2['timesteps'],
         parameters = params
     )
-    df = _convert_r_df(output.rx2['dataframe'])
-    n = remove_burnin(jnp.array(output.rx2['grid'].rx2['n']), burnin)
+    df = _convert_r_df(output)
+    n = remove_burnin(jnp.array(df[[f'grid_n_{i}' for i in range(100)]].to_numpy()), burnin)
     n_detect = remove_burnin(
-        jnp.array(output.rx2['grid'].rx2['n_detect']),
+        jnp.array(df[[f'grid_p_detect_{i}' for i in range(100)]].to_numpy()),
         burnin
     )
     n_inc_clinical = remove_burnin(
-        jnp.array(output.rx2['grid'].rx2['n_inc_clinical']),
+        jnp.array(df[[f'grid_p_inc_clinical_{i}' for i in range(100)]].to_numpy()),
         burnin
     )
 
