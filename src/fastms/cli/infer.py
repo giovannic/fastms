@@ -90,9 +90,9 @@ def add_parser(subparsers):
         help='Number of cores to use for sample injestion'
     )
     sample_parser.add_argument(
-        '--svi',
+        '--mcmc',
         type=bool,
-        default=True,
+        default=False,
         help='Whether to use stochastic variational inference'
     )
     sample_parser.add_argument(
@@ -267,7 +267,7 @@ def run(args):
             return site_prev, site_inc
         key = random.PRNGKey(args.seed)
         key_i, key = random.split(key)
-        if args.svi:
+        if not args.mcmc:
             i_data = surrogate_posterior_svi(
                 key_i,
                 n_train_samples=args.n_train_svi,

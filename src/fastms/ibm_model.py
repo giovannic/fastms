@@ -10,7 +10,7 @@ from numpyro.infer import (
     SVI,
     Trace_ELBO
 )
-from numpyro.infer.autoguide import AutoIAFNormal
+from numpyro.infer.autoguide import AutoNormal
 import arviz as az
 
 from jax import random
@@ -185,13 +185,12 @@ def surrogate_posterior_svi(
     )
 
     # initialise SVI
-    guide = AutoIAFNormal(model)
+    guide = AutoNormal(model)
     svi = SVI(
         model,
         guide,
         optim.Adam(1e-3),
-        loss=Trace_ELBO(),
-        **model_args
+        loss=Trace_ELBO()
     )
 
     # train SVI
@@ -220,8 +219,8 @@ def surrogate_posterior_svi(
         prior=_to_arviz_dict(prior),
         prior_predictive=_to_arviz_dict(prior_predictive),
         observed_data={
-            'prev': model_args['prev'],
-            'inc': model_args['inc']
+            'obs_prev': model_args['prev'],
+            'obs_inc': model_args['inc']
         }
     )
     return data

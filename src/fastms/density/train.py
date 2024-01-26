@@ -18,6 +18,7 @@ from mox.surrogates import (
 from mox.utils import unbatch_tree
 from jax.scipy.stats import truncnorm
 
+
 def make_rnn(model, samples, units=255, dtype=jnp.float32):
     y = tree_map(lambda x: x[0], samples[1])
     y_zero = tree_map(lambda x: jnp.zeros_like(x), y)
