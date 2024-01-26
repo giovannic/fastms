@@ -97,7 +97,6 @@ def model(
     ))
     
     ru = numpyro.sample('ru', dist.LogNormal(0., 1.))
-    du = 1 / ru #type: ignore
     
     # FOIM
     cd = numpyro.sample('cd', dist.Beta(1., 2.))
@@ -123,7 +122,7 @@ def model(
         'fd0': fd0,
         'gammad': gammad,
         'ad': ad,
-        'du': du,
+        'ru': ru,
         'cd': cd,
         'cu': cu,
         'gamma1': gamma1

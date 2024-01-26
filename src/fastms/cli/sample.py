@@ -1,5 +1,6 @@
 from ..sample.prior import sample_prior
 from ..sample.calibration import sample_calibration
+from ..sample.data import sample_from_data
 from ..sample.save import save_compressed_pytree, save_pytree_def
 from ..aggregate import monthly
 from jax.random import PRNGKey
@@ -19,7 +20,7 @@ def add_parser(subparsers):
     )
     sample_parser.add_argument(
         'intrinsic_strategy',
-        choices=['prior', 'lhs', 'none'],
+        choices=['prior', 'lhs', 'none', 'data'],
         help='Strategy for modelling intrinsic parameters'
     )
     sample_parser.add_argument(
@@ -36,14 +37,13 @@ def add_parser(subparsers):
         '--aggregate',
         '-a',
         choices=['monthly', 'none'],
-        default='none',
+        default='monthly',
         help='Aggregate the samples for quicker/easier training'
     )
     sample_parser.add_argument(
         '--sites',
         type=str,
-        help='Path to site parameters. If not set, sites are sampled using the ' + 
-            'LHS strategy'
+        help='Path to site parameters'
     )
     sample_parser.add_argument(
         '--number',
@@ -89,6 +89,11 @@ def add_parser(subparsers):
         help='Number of years to run the burnin for'
     )
     sample_parser.add_argument(
+        '--data',
+        type=str,
+        help='Path to az InferenceData to use for model sampling'
+    )
+    sample_parser.add_argument(
         '--dynamic_burnin',
         type=bool,
         default=False,
@@ -111,7 +116,8 @@ def run(args):
                 population=args.population,
                 dynamic_burnin=args.dynamic_burnin
             )
-            samples = monthly(samples)
+            if args.aggregate == 'monthly':
+                samples = monthly(samples)
             save_compressed_pytree(samples, args.output)
             save_pytree_def(samples, args.output_def)
         elif args.intrinsic_strategy == 'none':
@@ -128,6 +134,23 @@ def run(args):
                 end_year=args.end,
                 population=args.population,
                 dynamic_burnin=args.dynamic_burnin
+            )
+            if args.aggregate == 'monthly':
+                samples = monthly(samples)
+            save_compressed_pytree(samples, args.output)
+            save_pytree_def(samples, args.output_def)
+        elif args.intrinsic_strategy == 'data':
+            if args.data is None:
+                raise ValueError('--data must be set')
+            samples = sample_from_data(
+                args.data,
+                args.sites,
+                args.burnin,
+                cores=args.cores,
+                start_year=args.start,
+                end_year=args.end,
+                population=args.population,
+                n_samples=args.number
             )
             if args.aggregate == 'monthly':
                 samples = monthly(samples)

@@ -26,23 +26,25 @@ def run_ibm(
     cores: int,
     population: int = 100000,
     dynamic_burnin: bool = False,
+    calibrate_to_EIR: bool = False
     ) -> PyTree:
     n = init_EIR.shape[0]
-    with Pool(cores) as pool:
-        args = (
-            (
-                _extract_from_tree(X_intrinsic, i),
-                _extract_site(sites, site_samples, i),
-                init_EIR[i],
-                population,
-                burnin
-            )
-            for i in range(n)
+    args = (
+        (
+            _extract_from_tree(X_intrinsic, i),
+            _extract_site(sites, site_samples, i),
+            init_EIR[i],
+            population,
+            burnin
         )
-        if dynamic_burnin:
-            outputs = pool.starmap(_run_ibm_until_stable, args)
-        else:
-            outputs = pool.starmap(_run_ibm_fixed_burnin, args)
+        for i in range(n)
+    )
+    if dynamic_burnin:
+        outputs = _apply(_run_ibm_until_stable, args, cores)
+    if calibrate_to_EIR:
+        outputs = _apply(_run_ibm_calibrated_to_EIR, args, cores)
+    else:
+        outputs = _apply(_run_ibm_fixed_burnin, args, cores)
     model_outputs, eirs = zip(*outputs)
     return _stack_trees(model_outputs), jnp.array(eirs)
 
@@ -140,6 +142,54 @@ def _run_ibm_fixed_burnin(
     # convert outputs to jax
     model_outputs = format_outputs(df, n, n_detect, n_inc_clinical)
     return model_outputs, baseline_eir
+
+def _run_ibm_calibrated_to_EIR(
+    X_intrinsic: dict,
+    X_site: dict,
+    X_eir: float,
+    population: int = 100000,
+    burnin: int = 50
+    ) -> PyTree:
+    site = importr('site')
+    cali = importr('cali')
+
+    cali_params = site.site_parameters(
+        interventions = site.burnin_interventions(
+            _convert_pandas_df(X_site['interventions']),
+            burnin
+        ),
+        demography = site.burnin_demography(
+            _convert_pandas_df(X_site['demography']),
+            burnin
+        ),
+        vectors = _convert_pandas_df(X_site['vectors']),
+        seasonality = _convert_pandas_df(X_site['seasonality']),
+        eir = float(X_eir),
+        overrides = _parse_overrides(X_intrinsic, population)
+    )
+    cali_params.rx2['timesteps'] = burnin * 365
+
+    rcolumns = ','.join([f'"{s}"' for s in _EIRs])
+    last_year_EIR = ro.r(
+        f'function(x) mean(rowSums(tail(x[c({rcolumns})], 365)))'
+    )
+
+    init_EIR = cali.calibrate(
+        parameters = cali_params,
+        target = float(X_eir),
+        summary_function = last_year_EIR,
+        tolerance = 1,
+        low = 1,
+        high = 2000
+    )
+
+    return _run_ibm_fixed_burnin(
+        X_intrinsic,
+        X_site,
+        float(init_EIR[0]),
+        population,
+        burnin
+    )
 
 def _run_ibm_until_stable(
     X_intrinsic: Optional[dict],
@@ -247,7 +297,7 @@ def _convert_r_df(df):
 
 def _parse_overrides(params, population=100000):
     params = ro.vectors.ListVector(
-        (name, float(value))
+        (name, float(value)) if name != 'ru' else ('du', 1. / float(value))
         for name, value in params.items()
     )
     params.rx2['human_population'] = population
@@ -256,3 +306,10 @@ def _parse_overrides(params, population=100000):
 def _baseline_eir(df: pd.DataFrame, burnin=0):
     final_burnin = df.iloc[burnin-365:]
     return final_burnin[_EIRs].sum(axis=1).mean()
+
+def _apply(f, args, cores):
+    if cores == 1:
+        return [f(*a) for a in args]
+    else:
+        with Pool(cores) as pool:
+            return pool.starmap(f, args)

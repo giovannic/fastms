@@ -1,7 +1,6 @@
 from mox.sampling import DistStrategy, sample #type: ignore
 from numpyro import distributions as dist #type: ignore
-from jaxtyping import PyTree
-from jax import random
+from jaxtyping import Array, PyTree
 from jax import numpy as jnp
 from .sites import import_sites, pad_sites, sample_sites, sites_to_tree
 from .ibm import run_ibm
@@ -37,9 +36,7 @@ _prior_intrinsic_space = {
         low=20. * 365.,
         high=40. * 365.
     )),
-    'du': DistStrategy(
-        dist.LeftTruncatedDistribution(dist.Cauchy(100., 10.), low=0.)
-    ),
+    'ru': DistStrategy(dist.LogNormal(0., 1.)),
     'cd': DistStrategy(dist.Beta(1., 2.)),
     'cu': DistStrategy(dist.Beta(1., 5.)),
     'gamma1': DistStrategy(dist.LogNormal(0., .25))
@@ -48,7 +45,7 @@ _prior_intrinsic_space = {
 def sample_prior(
     site_path: str,
     n: int,
-    key: random.PRNGKeyArray,
+    key: Array,
     burnin,
     cores: int = 1,
     start_year: int = 1985,
