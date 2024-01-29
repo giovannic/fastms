@@ -4,11 +4,13 @@ from rpy2.robjects.packages import importr
 import rpy2.robjects as ro
 from rpy2.robjects import pandas2ri
 import rpy2.rinterface as ri
-from multiprocessing import Pool
+import multiprocessing as mp
 import pandas as pd
 from jax.tree_util import tree_map
 from jax import numpy as jnp
 import numpy as np
+
+mp.set_start_method('spawn')
 
 _species = ['arabiensis', 'funestus', 'gambiae']
 _immunity = ['ica_mean', 'icm_mean', 'ib_mean', 'id_mean']
@@ -286,7 +288,6 @@ def format_outputs(df: pd.DataFrame, n, n_detect, n_inc_clinical):
     }
     return outputs
 
-
 def _convert_pandas_df(df):
     with (ro.default_converter + pandas2ri.converter).context():
         return ro.conversion.get_conversion().py2rpy(df)
@@ -311,5 +312,5 @@ def _apply(f, args, cores):
     if cores == 1:
         return [f(*a) for a in args]
     else:
-        with Pool(cores) as pool:
+        with mp.Pool(cores) as pool:
             return pool.starmap(f, args)

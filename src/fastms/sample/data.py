@@ -1,7 +1,7 @@
-from typing import Optional
-from jaxtyping import PyTree
+from typing import Optional, Tuple, Dict
 import arviz as az
-from jax import numpy as jnp
+import numpy as np
+from numpy.typing import NDArray
 
 from ..sites import make_site_inference_data
 from ..sample.ibm import run_ibm
@@ -16,7 +16,7 @@ def sample_from_data(
     end_year: int=2018,
     population: int=100000,
     n_samples: Optional[int]=None
-    ) -> PyTree:
+    ) -> Tuple[Tuple[Dict, Dict, NDArray], NDArray]:
     """Sample from the posterior distribution of the IBM model given data.
 
     Args:
@@ -34,7 +34,7 @@ def sample_from_data(
     """
     data = az.from_netcdf(data_path)
     sites = make_site_inference_data(sites_path, start_year, end_year)
-    baseline_EIR = jnp.array(
+    baseline_EIR = np.array(
         az.extract(
             data,
             var_names='eir',
@@ -50,7 +50,7 @@ def sample_from_data(
         rng=False
     )
     X_intrinsic = {
-        x: jnp.tile(jnp.array(intrinsic_draws[x]), sites.n_sites)
+        x: np.tile(np.array(intrinsic_draws[x]), sites.n_sites)
         for x in intrinsic_vars
     }
     y, X_eir = run_ibm(
@@ -76,5 +76,5 @@ def sample_from_data(
         'interventions': X_sites['interventions'],
         'demography': X_sites['demography']
     }
-    X_t = jnp.arange(0, end_year - start_year + 1) * 365
+    X_t = np.arange(0, end_year - start_year + 1) * 365
     return (X, X_seq, X_t), y
