@@ -1,19 +1,19 @@
-from mox.sampling import DistStrategy, sample #type: ignore
-from numpyro import distributions as dist #type: ignore
+from mox.sampling import DistStrategy, sample
+from numpyro import distributions as dist
 from jaxtyping import Array, PyTree
 from jax import numpy as jnp
 from .sites import import_sites, pad_sites, sample_sites, sites_to_tree
 from .ibm import run_ibm
 
 _prior_intrinsic_space = {
-    'kb': DistStrategy(dist.LogNormal(0., .25)),
-    'ub': DistStrategy(dist.LogNormal(0., .25)),
+    'kb': DistStrategy(dist.LogNormal(0., .1)),
+    'ub': DistStrategy(dist.LogNormal(0., 1.)),
     'b0': DistStrategy(dist.Beta(1., 1.)),
     'ib0': DistStrategy(
         dist.LeftTruncatedDistribution(dist.Normal(50., 10.), low=0.)
     ),
-    'kc': DistStrategy(dist.LogNormal(0., .25)),
-    'uc': DistStrategy(dist.LogNormal(0., .25)),
+    'kc': DistStrategy(dist.LogNormal(0., .1)),
+    'uc': DistStrategy(dist.LogNormal(0., 1.)),
     'ic0': DistStrategy(
         dist.LeftTruncatedDistribution(dist.Cauchy(100., 10.), low=0.)
     ),
@@ -23,23 +23,23 @@ _prior_intrinsic_space = {
     'rm': DistStrategy(
         dist.LeftTruncatedDistribution(dist.Cauchy(200., 10.), low=0.)
     ),
-    'kd': DistStrategy(dist.LogNormal(0., .25)),
-    'ud': DistStrategy(dist.LogNormal(0., .25)),
+    'kd': DistStrategy(dist.LogNormal(0., .1)),
+    'ud': DistStrategy(dist.LogNormal(0., 1.)),
     'd1': DistStrategy(dist.Beta(1., 2.)),
     'id0': DistStrategy(
         dist.LeftTruncatedDistribution(dist.Cauchy(25., 1.), low=0.)
     ),
     'fd0': DistStrategy(dist.Beta(1., 1.)),
-    'gammad': DistStrategy(dist.LogNormal(0., .25)),
+    'gammad': DistStrategy(dist.LogNormal(0., .1)),
     'ad': DistStrategy(dist.TruncatedDistribution(
-        dist.Cauchy(30. * 365., 365.),
-        low=20. * 365.,
-        high=40. * 365.
+        dist.Cauchy(70. * 365., 365.),
+        low=40. * 365.,
+        high=100. * 365.
     )),
     'ru': DistStrategy(dist.LogNormal(0., 1.)),
     'cd': DistStrategy(dist.Beta(1., 2.)),
     'cu': DistStrategy(dist.Beta(1., 5.)),
-    'gamma1': DistStrategy(dist.LogNormal(0., .25))
+    'gamma1': DistStrategy(dist.LogNormal(0., .1))
 }
 
 def sample_prior(
@@ -50,12 +50,11 @@ def sample_prior(
     cores: int = 1,
     start_year: int = 1985,
     end_year: int = 2018,
-    population: int = 100000,
-    dynamic_burnin: bool = False
+    population: int = 100000
     ) -> PyTree:
-    EIR = DistStrategy(dist.Uniform(0., 500.))
+    EIR = DistStrategy(dist.Uniform(0., 1000.))
     X_intrinsic, init_EIR = sample(
-        [_prior_intrinsic_space, EIR],
+        [_prior_intrinsic_space, EIR], # type: ignore
         n,
         key
     )
@@ -63,7 +62,7 @@ def sample_prior(
     sites = pad_sites(sites, start_year, end_year)
     site_samples = sample_sites(sites, n, key)
     X_sites = sites_to_tree(site_samples, sites)
-    y, X_eir = run_ibm(
+    y = run_ibm(
         X_intrinsic,
         sites,
         site_samples,
@@ -71,11 +70,10 @@ def sample_prior(
         burnin,
         cores,
         population=population,
-        dynamic_burnin=dynamic_burnin
     )
     X = {
         'intrinsic': X_intrinsic,
-        'baseline_eir': X_eir,
+        'init_EIR': init_EIR,
         'seasonality': X_sites['seasonality'],
         'vector_composition': X_sites['vectors']
     }

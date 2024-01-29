@@ -93,12 +93,6 @@ def add_parser(subparsers):
         type=str,
         help='Path to az InferenceData to use for model sampling'
     )
-    sample_parser.add_argument(
-        '--dynamic_burnin',
-        type=bool,
-        default=False,
-        help='Whether to use a dynamic burnin or not'
-    )
 
 def run(args):
     if args.model == 'ibm':
@@ -113,8 +107,7 @@ def run(args):
                 cores=args.cores,
                 start_year=args.start,
                 end_year=args.end,
-                population=args.population,
-                dynamic_burnin=args.dynamic_burnin
+                population=args.population
             )
             if args.aggregate == 'monthly':
                 samples = monthly(samples)
@@ -132,8 +125,7 @@ def run(args):
                 cores=args.cores,
                 start_year=args.start,
                 end_year=args.end,
-                population=args.population,
-                dynamic_burnin=args.dynamic_burnin
+                population=args.population
             )
             if args.aggregate == 'monthly':
                 samples = monthly(samples)
