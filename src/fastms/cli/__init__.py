@@ -3,6 +3,8 @@ from .sample import add_parser as add_sample_parser, run as run_sample
 from .train import add_parser as add_train_parser, run as run_train
 from .infer import add_parser as add_infer_parser, run as run_infer
 from .validate import add_parser as add_validate_parser, run as run_validate
+import logging
+import os
 
 parser = argparse.ArgumentParser(
     prog='fastms',
@@ -17,6 +19,7 @@ add_validate_parser(subparsers)
 args = parser.parse_args()
 
 def run():
+    logging.basicConfig(level=os.environ.get("FASTMS_LOG", "WARNING"))
     if args.commands == 'sample':
         run_sample(args)
     elif args.commands == 'train':

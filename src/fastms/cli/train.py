@@ -14,6 +14,7 @@ from ..density.transformer import(
 )
 from ..density.rnn import train as train_density
 from ..density.transformer import train as train_transformer
+import logging
 
 cpu_device = jax.devices('cpu')[0]
 
@@ -96,6 +97,8 @@ def run(args):
         dtype = jnp.float64
     else:
         dtype = jnp.float32
+
+    logging.info('Loading samples')
     with jax.default_device(cpu_device):
         samples = load_samples(
             args.samples,
@@ -104,6 +107,7 @@ def run(args):
             n=args.n,
             dtype=dtype
         )
+    logging.info('Samples loaded')
 
     if args.model == 'rnn':
         interface = RNNTrainingInterface(args.density, dtype)
@@ -112,11 +116,17 @@ def run(args):
     else:
         raise NotImplementedError('Model not implemented yet')
 
+    logging.info('Building model')
     model = interface.make_model(samples)
-    key = random.PRNGKey(args.seed)
-    net = interface.make_net(model, samples)
+
     with jax.default_device(cpu_device):
+        logging.info('Building net')
+        net = interface.make_net(model, samples)
+        key = random.PRNGKey(args.seed)
+        logging.info('Initialising net')
         params = interface.init_net(model, net, samples, key)
+
+    logging.info('Training the model')
     state = interface.train(
         model,
         net,
@@ -126,6 +136,7 @@ def run(args):
         args.epochs,
         args.batch_size
     )
+    logging.info('Saving the model')
     interface.save(args.output, model, net, state.params)
 
 class TrainingInterface(ABC):

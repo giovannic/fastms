@@ -5,6 +5,7 @@ from jax.tree_util import tree_map
 from ..ibm_model import surrogate_posterior, surrogate_posterior_svi
 from ..sample.save import load_samples
 from ..density.rnn import load
+from ..density.transformer import load as load_transformer
 from mox.seq2seq.rnn import apply_surrogate
 import numpyro
 import numpyro.distributions as dist
@@ -62,6 +63,11 @@ def add_parser(subparsers):
     sample_parser.add_argument(
         '--surrogate',
         '-s',
+        choices=['rnn', 'transformer'],
+        help='Surrogate Model to use for inference'
+    )
+    sample_parser.add_argument(
+        '--surrogate_path',
         type=str,
         help='Path to a surrogate model to use'
     )
@@ -135,7 +141,14 @@ def run(args):
             args.samples_def,
             args.cores
         )
-        surrogate, net, params = load(args.surrogate, samples)
+        if args.surrogate == 'rnn':
+            surrogate, net, params = load(args.surrogate_path, samples)
+        elif args.surrogate == 'transformer':
+            surrogate, net, params = load_transformer(args.surrogate_path, samples)
+        else:
+            raise NotImplementedError(
+                'Only RNN and Transformer surrogates are implemented'
+            )
         if args.prevalence is None or args.incidence is None:
             raise ValueError('Both prevalence and incidence required')
         prev = pd.read_csv(args.prevalence)
