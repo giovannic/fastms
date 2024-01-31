@@ -4,7 +4,7 @@ from jax import numpy as jnp, random
 from jax.tree_util import tree_map
 from ..ibm_model import surrogate_posterior, surrogate_posterior_svi
 from ..sample.save import load_samples
-from ..density.train import load
+from ..density.rnn import load
 from mox.seq2seq.rnn import apply_surrogate
 import numpyro
 import numpyro.distributions as dist

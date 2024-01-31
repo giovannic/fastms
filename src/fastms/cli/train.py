@@ -1,12 +1,19 @@
-from jax import random
+from abc import ABC, abstractmethod
+from jaxtyping import PyTree
+import jax
+from jax import random, numpy as jnp
+import flax.linen as nn
+
 from ..rnn import build, init, train, save, make_rnn
 from ..sample.save import load_samples
-from ..density.train import (
-    make_rnn as make_density_rnn,
-    train as train_density
+from ..density.rnn import make_rnn as make_density_rnn
+from ..density.transformer import(
+    init as init_transformer,
+    save as save_transformer,
+    make_transformer as make_density_transformer
 )
-import jax
-from jax import numpy as jnp
+from ..density.rnn import train as train_density
+from ..density.transformer import train as train_transformer
 
 cpu_device = jax.devices('cpu')[0]
 
@@ -99,35 +106,106 @@ def run(args):
         )
 
     if args.model == 'rnn':
-        model = build(samples, dtype=dtype)
-        key = random.PRNGKey(args.seed)
-        if args.density:
-            net = make_density_rnn(model, samples, dtype=dtype)
-        else:
-            net = make_rnn(model, samples)
-        with jax.default_device(cpu_device):
-            params = init(model, net, samples, key)
-        key_i, key = random.split(key)
-        if args.density:
-            state = train_density(
-                model,
-                net,
-                params,
-                samples,
-                key_i,
-                args.epochs,
-                args.batch_size
-            )
-        else:
-            state = train(
-                model,
-                net,
-                params,
-                samples,
-                key_i,
-                args.epochs,
-                args.batch_size
-            )
-        save(args.output, model, net, state.params)
+        interface = RNNTrainingInterface(args.density, dtype)
+    elif args.model == 'transformer':
+        interface = TransformerTrainingInterface()
     else:
         raise NotImplementedError('Model not implemented yet')
+
+    model = interface.make_model(samples)
+    key = random.PRNGKey(args.seed)
+    net = interface.make_net(model, samples)
+    with jax.default_device(cpu_device):
+        params = interface.init_net(model, net, samples, key)
+    state = interface.train(
+        model,
+        net,
+        params,
+        samples,
+        key,
+        args.epochs,
+        args.batch_size
+    )
+    interface.save(args.output, model, net, state.params)
+
+class TrainingInterface(ABC):
+
+    @abstractmethod
+    def make_model(self, samples):
+        pass
+
+    @abstractmethod
+    def make_net(self, model, samples) -> nn.Module:
+        pass
+
+    @abstractmethod
+    def init_net(self, model, net, samples, key) -> PyTree:
+        pass
+
+    @abstractmethod
+    def train(self, model, net, params, samples, key, epochs, batch_size) -> PyTree:
+        pass
+
+    @abstractmethod
+    def save(self, output, model, net, params):
+        pass
+
+
+class RNNTrainingInterface(TrainingInterface):
+
+    def __init__(self, density=False, dtype=jnp.float32):
+        self.density = density
+        self.dtype = dtype
+
+    def make_model(self, samples):
+        return build(samples, dtype=self.dtype)
+
+    def make_net(self, model, samples) -> nn.Module:
+        if self.density:
+            return make_density_rnn(model, samples)
+        return make_rnn(model, samples)
+
+    def init_net(self, model, net, samples, key) -> PyTree:
+        return init(model, net, samples, key)
+
+    def train(self, model, net, params, samples, key, epochs, batch_size) -> PyTree:
+        if self.density:
+            return train_density(model, net, params, samples, key, epochs, batch_size)
+        return train(model, net, params, samples, key, epochs, batch_size)
+
+    def save(self, output, model, net, params):
+        save(output, model, net, params)
+
+class TransformerTrainingInterface(RNNTrainingInterface):
+
+    def __init__(self):
+        super().__init__(density=True)
+
+    def make_net(self, model, samples) -> nn.Module:
+        return make_density_transformer(model, samples)
+
+    def init_net(self, model, net, samples, key) -> PyTree:
+        return init_transformer(model, net, samples, key)
+
+    def train(
+        self,
+        model,
+        net,
+        params,
+        samples,
+        key,
+        epochs,
+        batch_size
+    ) -> PyTree:
+        return train_transformer(
+            model,
+            net,
+            params,
+            samples,
+            key,
+            epochs,
+            batch_size
+        )
+
+    def save(self, output, model, net, params):
+        save_transformer(output, model, net, params)
