@@ -12,7 +12,7 @@ from ..density.transformer import(
     save as save_transformer,
     make_transformer as make_density_transformer
 )
-from ..density.rnn import train as train_density
+from ..density.rnn import train as train_density, save as save_density
 from ..density.transformer import train as train_transformer
 from jax.tree_util import tree_map
 import logging
@@ -189,7 +189,10 @@ class RNNTrainingInterface(TrainingInterface):
         return train(model, net, params, samples, key, epochs, batch_size, vectorising_device=cpu_device)
 
     def save(self, output, model, net, params):
-        save(output, model, net, params)
+        if self.density:
+            save_density(output, model, net, params)
+        else:
+            save(output, model, net, params)
 
 class TransformerTrainingInterface(RNNTrainingInterface):
 
