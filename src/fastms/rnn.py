@@ -42,7 +42,7 @@ def build(samples: PyTree, dtype=jnp.float32):
         y_max
     )
 
-def init(model: RNNSurrogate, net: nn.RNN, samples, key):
+def init(model: RNNSurrogate, net: nn.Module, samples, key):
     (x, x_seq, _), _ = samples
     return init_surrogate(key, model, net, (x, x_seq))
 

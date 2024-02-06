@@ -4,6 +4,7 @@ from typing import Tuple
 from jaxtyping import PyTree, Array
 from flax import linen as nn
 from flax.training.train_state import TrainState
+from flax.training import orbax_utils
 from jax import random, numpy as jnp
 from jax.tree_util import tree_map
 from mox.seq2seq.rnn import RNNSurrogate, RNNDensitySurrogate
@@ -13,48 +14,38 @@ from .train import trunc_nll
 
 LSTMCarry = Tuple[Array, Array]
 
-def make_rnn(model, samples, units=255, dtype=jnp.float32):
+def make_rnn(model, samples, n_layers=2, units=255, dtype=jnp.float32):
     y = tree_map(lambda x: x[0], samples[1])
     y_zero = tree_map(lambda x: jnp.zeros_like(x), y)
     y_vec = model.vectorise_output(y)
     y_min = model.vectorise_output(y_zero)[0:1,:]
     feature_size = y_vec.shape[-1]
-    return nn.RNN(
-        DensityDecoderLSTMCell(units, feature_size, y_min, dtype=dtype)
+    return DensityDecoderRNN(
+        n_layers,
+        units,
+        feature_size,
+        y_min,
+        dtype
     )
 
-class DensityDecoderLSTMCell(nn.RNNCellBase):
-    """DecoderLSTM Module wrapped in a lifted scan transform.
-    feature_size: Feature size of the output sequence
-    """
+class DensityDecoderRNN(nn.Module):
+    """A multilayer LSTM model for density estimation."""
+    n_layers: int
     units: int
     feature_size: int
     y_min: Array
     dtype: jnp.float32
 
-    def setup(self):
-        self.lstm = nn.LSTMCell(self.units, param_dtype=self.dtype)
-        self.dense_mu = nn.Dense(features=self.feature_size)
-        self.dense_log_std = nn.Dense(features=self.feature_size)
-
-    def __call__(
-          self,
-          carry: LSTMCarry,
-          x: Array
-          ) -> Tuple[LSTMCarry, Tuple[Array, Array]]:
-        """Applies the DecoderLSTM model."""
-        carry, y = self.lstm(carry, x)
-        mu = self.dense_mu(y)
+    @nn.compact
+    def __call__(self, x):
+        for _ in range(self.n_layers):
+            x = nn.RNN(
+                nn.LSTMCell(self.units, param_dtype=self.dtype)
+            )(x) #type: ignore
+        mu = nn.Dense(features=self.feature_size)(x)
         mu = nn.softplus(mu) + self.y_min
-        log_sigma = self.dense_log_std(y)
-        return carry, (mu, log_sigma)
-
-    def initialize_carry(self, rng, input_shape) -> LSTMCarry:
-        return self.lstm.initialize_carry(rng, input_shape)
-
-    @property
-    def num_feature_axes(self) -> int:
-        return 1
+        log_sigma = nn.Dense(features=self.feature_size)(x)
+        return mu, log_sigma
 
 def load(path: str, dummy_samples: PyTree) -> Tuple[RNNSurrogate, nn.Module, PyTree]:
     dtype = dummy_samples[1]['immunity'].dtype
@@ -63,7 +54,7 @@ def load(path: str, dummy_samples: PyTree) -> Tuple[RNNSurrogate, nn.Module, PyT
     empty_net = make_rnn(empty_model, dummy_samples, dtype=dtype)
     empty = {
         'surrogate': dataclasses.asdict(empty_model),
-        'cell': dataclasses.asdict(empty_net.cell),
+        'net': dataclasses.asdict(empty_net),
         'params': init(
             empty_model,
             empty_net,
@@ -73,9 +64,23 @@ def load(path: str, dummy_samples: PyTree) -> Tuple[RNNSurrogate, nn.Module, PyT
     }
     ckpt = orbax_checkpointer.restore(path, item=empty)
     model = RNNDensitySurrogate(**ckpt['surrogate'])
-    net = nn.RNN(DensityDecoderLSTMCell(**ckpt['cell']))
+    net = DensityDecoderRNN(**ckpt['net'])
     params = ckpt['params']
     return model, net, params
+
+def save(path: str, model: RNNSurrogate, net: nn.Module, params: PyTree):
+    orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+    ckpt = {
+        'surrogate': dataclasses.asdict(model),
+        'net': dataclasses.asdict(net),
+        'params': params
+    }
+    save_args = orbax_utils.save_args_from_target(ckpt)
+    orbax_checkpointer.save(
+        path,
+        ckpt,
+        save_args=save_args
+    )
 
 def train(
     model: RNNSurrogate,

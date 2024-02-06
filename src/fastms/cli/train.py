@@ -12,7 +12,7 @@ from ..density.transformer import(
     save as save_transformer,
     make_transformer as make_density_transformer
 )
-from ..density.rnn import train as train_density
+from ..density.rnn import train as train_density, save as save_density
 from ..density.transformer import train as train_transformer
 import logging
 
@@ -173,7 +173,7 @@ class RNNTrainingInterface(TrainingInterface):
 
     def make_net(self, model, samples) -> nn.Module:
         if self.density:
-            return make_density_rnn(model, samples)
+            return make_density_rnn(model, samples, dtype=self.dtype)
         return make_rnn(model, samples)
 
     def init_net(self, model, net, samples, key) -> PyTree:
@@ -185,7 +185,10 @@ class RNNTrainingInterface(TrainingInterface):
         return train(model, net, params, samples, key, epochs, batch_size)
 
     def save(self, output, model, net, params):
-        save(output, model, net, params)
+        if self.density:
+            save_density(output, model, net, params)
+        else:
+            save(output, model, net, params)
 
 class TransformerTrainingInterface(RNNTrainingInterface):
 
