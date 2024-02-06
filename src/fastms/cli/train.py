@@ -14,6 +14,7 @@ from ..density.transformer import(
 )
 from ..density.rnn import train as train_density
 from ..density.transformer import train as train_transformer
+from jax.tree_util import tree_map
 import logging
 
 cpu_device = jax.devices('cpu')[0]
@@ -107,6 +108,9 @@ def run(args):
             n=args.n,
             dtype=dtype
         )
+        (x, x_seq, x_t), y = samples
+        (x, x_seq), y = tree_map(lambda x: x[:1], ((x, x_seq), y))
+        first_sample = ((x, x_seq, x_t), y)
     logging.info('Samples loaded')
 
     if args.model == 'rnn':
@@ -121,10 +125,10 @@ def run(args):
 
     with jax.default_device(cpu_device):
         logging.info('Building net')
-        net = interface.make_net(model, samples)
+        net = interface.make_net(model, first_sample)
         key = random.PRNGKey(args.seed)
         logging.info('Initialising net')
-        params = interface.init_net(model, net, samples, key)
+        params = interface.init_net(model, net, first_sample, key)
 
     logging.info('Training the model')
     state = interface.train(
@@ -173,16 +177,16 @@ class RNNTrainingInterface(TrainingInterface):
 
     def make_net(self, model, samples) -> nn.Module:
         if self.density:
-            return make_density_rnn(model, samples)
-        return make_rnn(model, samples)
+            return make_density_rnn(model, samples, dtype=self.dtype)
+        return make_rnn(model, samples, dtype=self.dtype)
 
     def init_net(self, model, net, samples, key) -> PyTree:
         return init(model, net, samples, key)
 
     def train(self, model, net, params, samples, key, epochs, batch_size) -> PyTree:
         if self.density:
-            return train_density(model, net, params, samples, key, epochs, batch_size)
-        return train(model, net, params, samples, key, epochs, batch_size)
+            return train_density(model, net, params, samples, key, epochs, batch_size, vectorising_device=cpu_device)
+        return train(model, net, params, samples, key, epochs, batch_size, vectorising_device=cpu_device)
 
     def save(self, output, model, net, params):
         save(output, model, net, params)
@@ -215,7 +219,8 @@ class TransformerTrainingInterface(RNNTrainingInterface):
             samples,
             key,
             epochs,
-            batch_size
+            batch_size,
+            vectorising_device=cpu_device
         )
 
     def save(self, output, model, net, params):

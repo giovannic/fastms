@@ -11,7 +11,7 @@ import flax.linen as nn
 from mox.seq2seq.transformer.transformer import DensityTransformer
 from mox.seq2seq.transformer.surrogate import init_surrogate
 from mox.seq2seq.transformer.training import train_transformer
-from mox.seq2seq.rnn import RNNSurrogate
+from mox.seq2seq.rnn import RNNSurrogate, RNNDensitySurrogate
 
 from ..rnn import build
 from .train import trunc_nll
@@ -72,7 +72,7 @@ def load(path: str, dummy_samples: PyTree) -> Tuple[RNNSurrogate, nn.Module, PyT
         )
     }
     ckpt = orbax_checkpointer.restore(path, item=empty)
-    model = RNNSurrogate(**ckpt['surrogate'])
+    model = RNNDensitySurrogate(**ckpt['surrogate'])
     net = DensityTransformer(**ckpt['net'])
     params = ckpt['params']
     return model, net, params
@@ -84,7 +84,8 @@ def train(
     samples: PyTree,
     key: Array,
     epochs: int,
-    batch_size: int
+    batch_size: int,
+    vectorising_device = None
     ) -> TrainState:
     (x, x_seq, _), y = samples
     n_batches = y['immunity'].shape[0] // batch_size
@@ -106,5 +107,6 @@ def train(
         loss,
         key,
         epochs = epochs,
-        batch_size = n_batches
+        batch_size = n_batches,
+        vectorising_device = vectorising_device
     )

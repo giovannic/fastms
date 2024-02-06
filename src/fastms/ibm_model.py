@@ -10,10 +10,15 @@ from numpyro.infer import (
     SVI,
     Trace_ELBO
 )
-from numpyro.infer.autoguide import AutoIAFNormal
+from numpyro.infer.autoguide import AutoNormal
 import arviz as az
 
 from jax import random
+import jax
+import logging
+from jax.tree_util import tree_map
+
+cpu_device = jax.devices('cpu')[0]
 
 MIN_RATE = 1e-12
 
@@ -44,7 +49,7 @@ def model(
     with numpyro.plate('sites', n_sites):
         eir = numpyro.sample(
             'eir',
-            dist.Uniform(0., 500.)
+            dist.Uniform(0., 1000.)
         )
 
         # Overdispersion variables
@@ -130,12 +135,17 @@ def model(
     
     prev_stats, inc_stats = impl(x, eir) #type: ignore
 
+    probs = straight_through(
+        lambda x: jnp.minimum(x, 1.),
+        prev_stats
+    )
+
     numpyro.sample(
         'obs_prev',
         dist.Independent(
             dist.Binomial(
                 total_count=n_prev, #type: ignore
-                probs=jnp.minimum(prev_stats, 1.),
+                probs=probs,
                 validate_args=True
             ),
             1
@@ -166,7 +176,7 @@ def surrogate_posterior_svi(
         n_train_samples: int = 10000,
         n_samples: int = 100,
         **model_args
-        ):
+    ):
     
     # sample prior
     prior_key, key = random.split(key, 2)
@@ -174,17 +184,16 @@ def surrogate_posterior_svi(
         k: v for k, v in model_args.items()
         if k not in ['prev', 'inc']
     }
+
+    logging.info('Sampling prior')
     prior = Predictive(model, num_samples=n_samples)(
         prior_key,
         **prior_args
     )
-    prior_predictive = Predictive(model, prior, num_samples=n_samples)(
-        prior_key,
-        **prior_args
-    )
+    prior = _remove_stoch_variables(prior)
 
     # initialise SVI
-    guide = AutoIAFNormal(model)
+    guide = AutoNormal(model)
     svi = SVI(
         model,
         guide,
@@ -194,33 +203,38 @@ def surrogate_posterior_svi(
     )
 
     # train SVI
+    logging.info('Training SVI')
     sample_key, key = random.split(key, 2)
-    svi_result = svi.run(sample_key, n_train_samples, **model_args)
+    svi_result = svi.run(sample_key, n_train_samples)
     svi_params = svi_result.params
 
     # sample posterior
+    logging.info('Sampling posterior')
     post_key, key = random.split(key, 2)
     posterior_samples = Predictive(
         guide,
         params=svi_params,
         num_samples=n_samples
     )(post_key)
+    posterior_samples = _remove_stoch_variables(posterior_samples)
 
     # sample posterior predictive
+    logging.info('Sampling posterior predictive')
     post_predictive = Predictive(
         model,
         posterior_samples,
         num_samples=n_samples
     )(post_key, **prior_args)
+    post_predictive = _remove_stoch_variables(post_predictive)
 
+    logging.info('Compiling results to save')
     data = az.from_dict(
         posterior=_to_arviz_dict(posterior_samples),
         posterior_predictive=_to_arviz_dict(post_predictive),
         prior=_to_arviz_dict(prior),
-        prior_predictive=_to_arviz_dict(prior_predictive),
         observed_data={
-            'prev': model_args['prev'],
-            'inc': model_args['inc']
+            'obs_prev': model_args['prev'],
+            'obs_inc': model_args['inc']
         }
     )
     return data
@@ -235,16 +249,18 @@ def surrogate_posterior(
     # NOTE: Reverse mode has lead to initialisation errors for dmeq
     kernel = NUTS(model)
 
+    logging.info('Sampling prior')
     prior_key, key = random.split(key, 2)
     prior_args = {
         k: v for k, v in model_args.items()
         if k not in ['prev', 'inc']
     }
-    prior = Predictive(model, num_samples=500)(
+    prior = Predictive(model, num_samples=n_samples)(
         prior_key,
         **prior_args
     )
 
+    logging.info('Sampling posterior')
     sample_key, key = random.split(key, 2)
     mcmc = MCMC(
         kernel,
@@ -255,11 +271,14 @@ def surrogate_posterior(
     )
     mcmc.run(sample_key, **model_args)
 
+    logging.info('Sampling posterior predictive')
     post_key, key = random.split(key, 2)
     posterior_predictive = Predictive(model, mcmc.get_samples())(
         post_key,
         **prior_args
     )
+
+    logging.info('Compiling outputs for saving')
     data = az.from_numpyro(
         mcmc,
         prior=prior,
@@ -277,4 +296,11 @@ def _to_arviz_dict(samples):
     return {
         k: v[None, ...]
         for k, v in samples.items()
+    }
+
+def _remove_stoch_variables(samples):
+    return {
+        k: v
+        for k, v in samples.items()
+        if not k in {'inc', 'inc_n', 'n_detect', 'n_detect_n' }
     }

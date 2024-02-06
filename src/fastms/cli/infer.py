@@ -9,6 +9,7 @@ from ..density.transformer import load as load_transformer
 from mox.seq2seq.rnn import apply_surrogate
 import numpyro
 import numpyro.distributions as dist
+import logging
 
 def add_parser(subparsers):
     """add_parser. Adds the inference parser to the main ArgumentParser
@@ -96,10 +97,10 @@ def add_parser(subparsers):
         help='Number of cores to use for sample injestion'
     )
     sample_parser.add_argument(
-        '--svi',
+        '--mcmc',
         type=bool,
-        default=True,
-        help='Whether to use stochastic variational inference'
+        default=False,
+        help='Whether to use MCMC'
     )
     sample_parser.add_argument(
         '--n_train_svi',
@@ -214,7 +215,7 @@ def run(args):
         def impl(x_intrinsic, x_eir):
             x = {
                 'intrinsic': tree_map(lambda leaf: jnp.full((n_sites,), leaf), x_intrinsic),
-                'baseline_eir': x_eir,
+                'init_EIR': x_eir,
                 'seasonality': x_sites['seasonality'],
                 'vector_composition': x_sites['vectors']
              }
@@ -232,34 +233,50 @@ def run(args):
             )
             sigma = tree_map(jnp.exp, log_sigma)
 
-            n_detect = numpyro.sample('n_detect', dist.LeftTruncatedDistribution(
-                dist.Normal(
-                    mu['n_detect'][prev_index],
-                    sigma['n_detect'][prev_index],
-                ),
-                0
-            ))
-            n_detect_n = numpyro.sample('n_detect_n', dist.LeftTruncatedDistribution(
-                dist.Normal(
+            #n_detect = mu['n_detect'][prev_index]
+            #n_detect_n = mu['n'][prev_index]
+            #n_inc_clinical = mu['n_inc_clinical'][inc_index]
+            #inc_n = mu['n'][inc_index]
+            n_detect = numpyro.sample(
+                'n_detect',
+                dist.LeftTruncatedDistribution(
+                    dist.Normal(
+                        mu['n_detect'][prev_index],
+                        sigma['n_detect'][prev_index],
+                    ),
+                    0
+                )
+            )
+            n_detect_n = numpyro.sample(
+                'n_detect_n',
+                dist.LeftTruncatedDistribution(
+                    dist.Normal(
                     mu['n'][prev_index],
-                    sigma['n'][prev_index],
-                ),
+                        sigma['n'][prev_index],
+                    ),
                 0
-            ))
-            n_inc_clinical = numpyro.sample('inc', dist.LeftTruncatedDistribution(
-                dist.Normal(
-                    mu['n_inc_clinical'][inc_index],
-                    sigma['n_inc_clinical'][inc_index]
-                ),
-                0
-            ))
-            inc_n = numpyro.sample('inc_n', dist.LeftTruncatedDistribution(
-                dist.Normal(
-                    mu['n'][inc_index],
-                    sigma['n'][inc_index],
-                ),
-                0
-            ))
+                )
+            )
+            n_inc_clinical = numpyro.sample(
+                'inc',
+                dist.LeftTruncatedDistribution(
+                    dist.Normal(
+                        mu['n_inc_clinical'][inc_index],
+                        sigma['n_inc_clinical'][inc_index]
+                    ),
+                    0
+                )
+            )
+            inc_n = numpyro.sample(
+                'inc_n',
+                dist.LeftTruncatedDistribution(
+                    dist.Normal(
+                        mu['n'][inc_index],
+                        sigma['n'][inc_index],
+                    ),
+                    0
+                )
+            )
 
             site_prev = _aggregate(
                 n_detect,
@@ -280,7 +297,7 @@ def run(args):
             return site_prev, site_inc
         key = random.PRNGKey(args.seed)
         key_i, key = random.split(key)
-        if args.svi:
+        if not args.mcmc:
             i_data = surrogate_posterior_svi(
                 key_i,
                 n_train_samples=args.n_train_svi,
@@ -309,6 +326,7 @@ def run(args):
                 inc_index=inc_index
             )
 
+        logging.info('Saving results')
         i_data.to_netcdf(args.output)
     else:
         raise NotImplementedError('Model not implemented yet')
