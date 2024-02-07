@@ -53,7 +53,8 @@ def train(
     samples: PyTree,
     key: Array,
     epochs: int,
-    batch_size: int
+    batch_size: int,
+    vectorising_device = None
     ) -> TrainState:
     (x, x_seq, _), y = samples
     n_batches = y['immunity'].shape[0] // batch_size
@@ -66,7 +67,8 @@ def train(
         mse,
         key,
         epochs = epochs,
-        batch_size = n_batches
+        batch_size = n_batches,
+        vectorising_device=vectorising_device
     )
     return state
 
