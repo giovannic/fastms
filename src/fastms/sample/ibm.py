@@ -1,5 +1,6 @@
-from typing import List, Optional
+from typing import List, Optional, Union
 from jaxtyping import PyTree, Array
+from numpy.typing import NDArray
 from rpy2.robjects.packages import importr
 import rpy2.robjects as ro
 from rpy2.robjects import pandas2ri
@@ -7,8 +8,6 @@ import multiprocessing as mp
 import pandas as pd
 from jax.tree_util import tree_map
 from jax import numpy as jnp
-
-mp.set_start_method('spawn')
 
 _species = ['arabiensis', 'funestus', 'gambiae']
 _immunity = ['ica_mean', 'icm_mean', 'ib_mean', 'id_mean']
@@ -21,7 +20,7 @@ def run_ibm(
     X_intrinsic: PyTree,
     sites: dict,
     site_samples: pd.DataFrame,
-    init_EIR: Array,
+    init_EIR: Union[Array, NDArray],
     burnin,
     cores: int,
     population: int = 100000
@@ -170,5 +169,6 @@ def _apply(f, args, cores):
     if cores == 1:
         return [f(*a) for a in args]
     else:
+        mp.set_start_method('spawn')
         with mp.Pool(cores) as pool:
             return pool.starmap(f, args)

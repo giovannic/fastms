@@ -93,6 +93,12 @@ def add_parser(subparsers):
         type=str,
         help='Path to az InferenceData to use for model sampling'
     )
+    sample_parser.add_argument(
+        '--data_start',
+        type=int,
+        default=0,
+        help='Start index for sampling from the data'
+    )
 
 def run(args):
     if args.model == 'ibm':
@@ -138,11 +144,12 @@ def run(args):
                 args.data,
                 args.sites,
                 args.burnin,
+                n_samples=args.number,
+                sample_start=args.data_start,
                 cores=args.cores,
                 start_year=args.start,
                 end_year=args.end,
                 population=args.population,
-                n_samples=args.number
             )
             if args.aggregate == 'monthly':
                 samples = monthly(samples)
