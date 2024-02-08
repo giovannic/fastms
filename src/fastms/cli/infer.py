@@ -1,6 +1,7 @@
 import pickle
 from functools import partial
 from jax import numpy as jnp, random
+from jax.lax import dynamic_slice
 from jax.tree_util import tree_map
 from ..ibm_model import (
     surrogate_posterior,
@@ -21,6 +22,26 @@ from numpyro.infer.autoguide import (
 )
 
 import logging
+
+def _aggregate(xs, ns, age_lower, age_upper, time_lower, time_upper):
+    age_lower = age_lower[:, jnp.newaxis, jnp.newaxis]
+    age_upper = age_upper[:, jnp.newaxis, jnp.newaxis]
+    time_lower = time_lower[:, jnp.newaxis, jnp.newaxis]
+    time_upper = time_upper[:, jnp.newaxis, jnp.newaxis]
+    age_mask = jnp.arange(xs.shape[2])[jnp.newaxis, jnp.newaxis, :]
+    age_mask = (age_mask >= age_lower) & (age_mask <= age_upper)
+    time_mask = jnp.arange(xs.shape[1])[jnp.newaxis, :, jnp.newaxis]
+    time_mask = (time_mask >= time_lower) & (time_mask <= time_upper)
+    mask = age_mask & time_mask
+    xs = jnp.where(mask, xs, 0)
+    ns = jnp.where(mask, ns, 0)
+    xs_over_age = jnp.sum(xs, axis=2) #type: ignore
+    ns_over_age = jnp.sum(ns, axis=2) #type: ignore
+    prev_over_time = jnp.sum(
+        jnp.where(jnp.squeeze(time_mask, 2), xs_over_age / ns_over_age, 0),
+        axis=1
+    )
+    return prev_over_time / jnp.sum(time_mask, axis=(1, 2))
 
 def add_parser(subparsers):
     """add_parser. Adds the inference parser to the main ArgumentParser
@@ -127,9 +148,9 @@ def add_parser(subparsers):
     )
     sample_parser.add_argument(
         '--stoch',
-        type=bool,
-        default=False,
-        help='Whether to model stochasticity in the surrogate'
+        choices=['mean', 'mask', 'slice'],
+        default='mean',
+        help='How to handle stochasticity in the surrogate'
     )
     sample_parser.add_argument(
         '--n_train_svi',
@@ -137,26 +158,6 @@ def add_parser(subparsers):
         default=10000,
         help='Number of training samples for SVI'
     )
-
-def _aggregate(xs, ns, age_lower, age_upper, time_lower, time_upper):
-    age_lower = age_lower[:, jnp.newaxis, jnp.newaxis]
-    age_upper = age_upper[:, jnp.newaxis, jnp.newaxis]
-    time_lower = time_lower[:, jnp.newaxis, jnp.newaxis]
-    time_upper = time_upper[:, jnp.newaxis, jnp.newaxis]
-    age_mask = jnp.arange(xs.shape[2])[jnp.newaxis, jnp.newaxis, :]
-    age_mask = (age_mask >= age_lower) & (age_mask <= age_upper)
-    time_mask = jnp.arange(xs.shape[1])[jnp.newaxis, :, jnp.newaxis]
-    time_mask = (time_mask >= time_lower) & (time_mask <= time_upper)
-    mask = age_mask & time_mask
-    xs = jnp.where(mask, xs, 0)
-    ns = jnp.where(mask, ns, 0)
-    xs_over_age = jnp.sum(xs, axis=2) #type: ignore
-    ns_over_age = jnp.sum(ns, axis=2) #type: ignore
-    prev_over_time = jnp.sum(
-        jnp.where(jnp.squeeze(time_mask, 2), xs_over_age / ns_over_age, 0),
-        axis=1
-    )
-    return prev_over_time / jnp.sum(time_mask, axis=(1, 2))
 
 def run(args):
     if args.model == 'ibm':
@@ -233,7 +234,6 @@ def run(args):
                 sites.inc_end_time
             )
             return site_prev, site_inc
-
 
         def stoch_impl(x_intrinsic, x_eir):
             x = {
@@ -318,9 +318,167 @@ def run(args):
             )
             return site_prev, site_inc
 
-        if args.stoch:
+        def dyn_impl(x_intrinsic, x_eir):
+            x = {
+                'intrinsic': tree_map(
+                    lambda leaf: jnp.full((sites.n_sites,), leaf),
+                    x_intrinsic
+                ),
+                'init_EIR': x_eir,
+                'seasonality': sites.x_sites['seasonality'],
+                'vector_composition': sites.x_sites['vectors']
+            }
+            x_seq = {
+                'interventions': sites.x_sites['interventions'],
+                'demography': sites.x_sites['demography']
+            }
+            x_in = (x, x_seq)
+
+            mu, log_sigma = apply_surrogate(
+                surrogate,
+                net,
+                params,
+                x_in
+            )
+            sigma = tree_map(jnp.exp, log_sigma)
+
+            def _slice_model_output(
+                x,
+                i,
+                p_i,
+                start_time,
+                n_time,
+                start_age,
+                n_age
+                ):
+                return dynamic_slice(
+                    x[p_i],
+                    (start_time[i], start_age[i]),
+                    (n_time[i], n_age[i])
+                )
+
+
+            def _sample_surrogate_stat(
+                sample_name,
+                stat,
+                p_i,
+                i,
+                start_time,
+                n_time,
+                start_age,
+                n_age
+                ):
+                mu_stat = _slice_model_output(
+                    mu[stat],
+                    i,
+                    p_i,
+                    start_time,
+                    n_time,
+                    start_age,
+                    n_age
+                )
+                sigma_stat = _slice_model_output(
+                    sigma[stat],
+                    i,
+                    p_i,
+                    start_time,
+                    n_time,
+                    start_age,
+                    n_age
+                )
+                return numpyro.sample(
+                    f'{sample_name}_{i}',
+                    dist.LeftTruncatedDistribution(
+                        dist.Normal(mu_stat, sigma_stat), #type: ignore
+                        0
+                    )
+                )
+
+            prev_n_time = sites.prev_end_time - sites.prev_start_time + 1
+            prev_n_age = sites.prev_uar - sites.prev_lar + 1
+            inc_n_time = sites.inc_end_time - sites.inc_start_time + 1
+            inc_n_age = sites.inc_uar - sites.inc_lar + 1
+
+            n_detect = [
+                _sample_surrogate_stat(
+                    'n_detect',
+                    'n_detect',
+                    p_i,
+                    i,
+                    sites.prev_start_time,
+                    prev_n_time,
+                    sites.prev_lar,
+                    prev_n_age
+                )
+                for i, p_i in enumerate(sites.prev_index)
+            ]
+            n_detect_n = [
+                _sample_surrogate_stat(
+                    'n_detect_n',
+                    'n',
+                    p_i,
+                    i,
+                    sites.prev_start_time,
+                    prev_n_time,
+                    sites.prev_lar,
+                    prev_n_age
+                )
+                for i, p_i in enumerate(sites.prev_index)
+            ]
+
+            n_inc_clinical = [
+                _sample_surrogate_stat(
+                    'inc',
+                    'n_inc_clinical',
+                    inc_i,
+                    i,
+                    sites.inc_start_time,
+                    inc_n_time,
+                    sites.inc_lar,
+                    inc_n_age
+                )
+                for i, inc_i in enumerate(sites.inc_index)
+            ]
+
+            inc_n = [
+                _sample_surrogate_stat(
+                    'inc_n',
+                    'n',
+                    inc_i,
+                    i,
+                    sites.inc_start_time,
+                    inc_n_time,
+                    sites.inc_lar,
+                    inc_n_age
+                )
+                for i, inc_i in enumerate(sites.inc_index)
+            ]
+
+            # aggregate over age and time
+            site_prev = jnp.stack([
+                jnp.mean(
+                    jnp.sum(n_detect_i, axis=1) / #type: ignore
+                    jnp.sum(n_detect_n_i, axis=1) #type: ignore
+                )
+                for n_detect_i, n_detect_n_i in zip(n_detect, n_detect_n)
+            ])
+
+            site_inc = jnp.stack([
+                jnp.mean(
+                    jnp.sum(n_inc_clinical_i, axis=1) / #type: ignore
+                    jnp.sum(inc_n_i, axis=1) #type: ignore
+                )
+                for n_inc_clinical_i, inc_n_i in zip(n_inc_clinical, inc_n)
+            ])
+
+            return site_prev, site_inc
+
+        if args.stoch == 'mask':
             impl = stoch_impl
+        if args.stoch == 'slice':
+            impl = dyn_impl
         else:
+            assert args.stoch == 'mean'
             impl = mean_impl
 
         # Make fake data for validation

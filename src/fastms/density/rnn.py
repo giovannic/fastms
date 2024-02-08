@@ -113,5 +113,5 @@ def train(
         key,
         epochs = epochs,
         batch_size = n_batches,
-        vectorising_device=vectorising_device
+        vectorising_device = vectorising_device
     )
