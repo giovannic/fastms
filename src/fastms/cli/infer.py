@@ -103,6 +103,12 @@ def add_parser(subparsers):
         help='Whether to use MCMC'
     )
     sample_parser.add_argument(
+        '--stoch',
+        type=bool,
+        default=False,
+        help='Whether to model stochasticity in the surrogate'
+    )
+    sample_parser.add_argument(
         '--n_train_svi',
         type=int,
         default=10000,
@@ -212,7 +218,51 @@ def run(args):
             dtype=jnp.int32
         ) * 12 + inc.END_MONTH.values
 
-        def impl(x_intrinsic, x_eir):
+        def mean_impl(x_intrinsic, x_eir):
+            x = {
+                'intrinsic': tree_map(lambda leaf: jnp.full((n_sites,), leaf), x_intrinsic),
+                'init_EIR': x_eir,
+                'seasonality': x_sites['seasonality'],
+                'vector_composition': x_sites['vectors']
+             }
+            x_seq = {
+                'interventions': x_sites['interventions'],
+                'demography': x_sites['demography']
+            }
+            x_in = (x, x_seq)
+
+            mu, _ = apply_surrogate(
+                surrogate,
+                net,
+                params,
+                x_in
+            )
+
+            n_detect = mu['n_detect'][prev_index]
+            n_detect_n = mu['n'][prev_index]
+            n_inc_clinical = mu['n_inc_clinical'][inc_index]
+            inc_n = mu['n'][inc_index]
+
+            site_prev = _aggregate(
+                n_detect,
+                n_detect_n,
+                prev_lar,
+                prev_uar,
+                prev_start_time,
+                prev_end_time
+            )
+            site_inc = _aggregate(
+                n_inc_clinical,
+                inc_n,
+                inc_lar,
+                inc_uar,
+                inc_start_time,
+                inc_end_time
+            )
+            return site_prev, site_inc
+
+
+        def stoch_impl(x_intrinsic, x_eir):
             x = {
                 'intrinsic': tree_map(lambda leaf: jnp.full((n_sites,), leaf), x_intrinsic),
                 'init_EIR': x_eir,
@@ -233,10 +283,6 @@ def run(args):
             )
             sigma = tree_map(jnp.exp, log_sigma)
 
-            #n_detect = mu['n_detect'][prev_index]
-            #n_detect_n = mu['n'][prev_index]
-            #n_inc_clinical = mu['n_inc_clinical'][inc_index]
-            #inc_n = mu['n'][inc_index]
             n_detect = numpyro.sample(
                 'n_detect',
                 dist.LeftTruncatedDistribution(
@@ -295,6 +341,12 @@ def run(args):
                 inc_end_time
             )
             return site_prev, site_inc
+
+        if args.stoch:
+            impl = stoch_impl
+        else:
+            impl = mean_impl
+
         key = random.PRNGKey(args.seed)
         key_i, key = random.split(key)
         if not args.mcmc:
