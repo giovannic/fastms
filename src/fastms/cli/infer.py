@@ -268,7 +268,7 @@ def run(args):
                 'init_EIR': x_eir,
                 'seasonality': x_sites['seasonality'],
                 'vector_composition': x_sites['vectors']
-             }
+            }
             x_seq = {
                 'interventions': x_sites['interventions'],
                 'demography': x_sites['demography']

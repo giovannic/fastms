@@ -15,7 +15,11 @@ class SiteData:
     inc_start_time: Array
     inc_end_time: Array
     prev_index: Array
+    n_prev: Array
+    prev: Array
     inc_index: Array
+    inc_risk_time: Array
+    inc: Array
     x_sites: Array
     site_df_dict: dict
     site_index: pd.DataFrame
@@ -103,7 +107,11 @@ def make_site_inference_data(sites_path, start_year, end_year) -> SiteData:
         inc_start_time=inc_start_time,
         inc_end_time=inc_end_time,
         prev_index=prev_index,
+        n_prev=jnp.array(prev.N.values),
+        prev=jnp.array(prev.N_POS.values),
         inc_index=inc_index,
+        inc_risk_time=jnp.array(inc.PYO.values) * 365.,
+        inc=jnp.array(inc.N.values, dtype=jnp.int64),
         x_sites=x_sites,
         site_df_dict=sites,
         site_index=site_samples,
