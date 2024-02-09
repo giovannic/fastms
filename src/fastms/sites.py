@@ -111,7 +111,7 @@ def make_site_inference_data(sites_path, start_year, end_year) -> SiteData:
         prev=jnp.array(prev.N_POS.values),
         inc_index=inc_index,
         inc_risk_time=jnp.array(inc.PYO.values) * 365.,
-        inc=jnp.array(inc.N.values, dtype=jnp.int64),
+        inc=jnp.array(inc.INC.values, dtype=jnp.int64),
         x_sites=x_sites,
         site_df_dict=sites,
         site_index=site_samples,
