@@ -16,7 +16,6 @@ import arviz as az
 from jax import random
 import jax
 import logging
-from jax.tree_util import tree_map
 
 cpu_device = jax.devices('cpu')[0]
 
@@ -60,6 +59,10 @@ def model(
         mu = numpyro.sample(
             'mu',
             dist.Gamma(2., 2.)
+        )
+        theta = numpyro.sample(
+            'theta',
+            dist.Beta(10., 1.)
         )
 
     kb = numpyro.sample('kb', dist.LogNormal(0., 1.))
@@ -135,17 +138,22 @@ def model(
     
     prev_stats, inc_stats = impl(x, eir) #type: ignore
 
-    probs = straight_through(
-        lambda x: jnp.minimum(x, 1.),
-        prev_stats
+    alpha = straight_through(
+        lambda x: jnp.minimum(jnp.maximum(x, MIN_RATE), 1.),
+        (prev_stats) * theta[prev_index]
+    )
+    beta = straight_through(
+        lambda x: jnp.minimum(jnp.maximum(x, MIN_RATE), 1.),
+        (1. - prev_stats) * theta[prev_index]
     )
 
     numpyro.sample(
         'obs_prev',
         dist.Independent(
-            dist.Binomial(
+            dist.BetaBinomial(
+                concentration1=alpha,
+                concentration0=beta,
                 total_count=n_prev, #type: ignore
-                probs=probs,
                 validate_args=True
             ),
             1
@@ -163,7 +171,7 @@ def model(
         dist.Independent(
             dist.GammaPoisson(
                 mean * q[inc_index],
-                q[inc_index],
+                q[inc_index], #type: ignore
                 validate_args=True
             ),
             1
