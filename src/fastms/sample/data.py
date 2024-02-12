@@ -2,6 +2,7 @@ from typing import Tuple, Dict
 import arviz as az
 import numpy as np
 from numpy.typing import NDArray
+from jax.tree_util import tree_map
 
 from ..sites import make_site_inference_data
 from ..sample.ibm import run_ibm
@@ -13,6 +14,8 @@ def sample_from_data(
     burnin: int,
     sample_start: int,
     n_samples: int,
+    site_start: int,
+    n_sites: int,
     cores: int=1,
     start_year: int=1985,
     end_year: int=2018,
@@ -35,17 +38,25 @@ def sample_from_data(
     Returns:
         Samples from the posterior distribution of the IBM model.
     """
+    # Load inference data
     data = az.from_netcdf(data_path)
-    sites = make_site_inference_data(sites_path, start_year, end_year)
-    sample_end = sample_start + n_samples
 
+    # Load site data
+    sites = make_site_inference_data(sites_path, start_year, end_year)
+
+    # Extract samples from the posterior distribution
+    sample_end = sample_start + n_samples
+    if n_sites == -1:
+        site_end = sites.n_sites
+    else:
+        site_end = site_start + n_sites
     init_EIR = np.array(
         az.extract(
             data,
             var_names='eir',
             rng=False
         )
-    )[:, sample_start:sample_end].reshape(-1)
+    )[site_start:site_end, sample_start:sample_end].reshape(-1)
     intrinsic_vars = list(_prior_intrinsic_space.keys())
     intrinsic_draws = az.extract(
         data,
@@ -55,25 +66,29 @@ def sample_from_data(
     X_intrinsic = {
         x: np.tile(
             np.array(intrinsic_draws[x][sample_start:sample_end]),
-            sites.n_sites
+            n_sites
         )
         for x in intrinsic_vars
     }
-    y, X_eir = run_ibm(
+    site_df = sites.site_index.loc[
+        sites.site_index.iloc[site_start:site_end].index.repeat(n_samples)
+    ]
+    y = run_ibm(
         X_intrinsic,
         sites.site_df_dict,
-        sites.site_index.loc[
-            sites.site_index.index.repeat(n_samples)
-        ],
+        site_df,
         init_EIR,
         burnin,
         cores,
         population=population
     )
-    X_sites = sites.x_sites
+    X_sites = tree_map(
+        lambda leaf: leaf[site_start:site_end],
+        sites.x_sites
+    )
     X = {
         'intrinsic': X_intrinsic,
-        'init_EIR': X_eir,
+        'init_EIR': init_EIR,
         'seasonality': X_sites['seasonality'],
         'vector_composition': X_sites['vectors']
     }

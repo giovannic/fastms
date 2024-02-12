@@ -1,11 +1,10 @@
-import pandas as pd
-from ..sample.sites import import_sites, pad_sites, sites_to_tree
 from jax import numpy as jnp, random
 from jax.tree_util import tree_map
 from ..ibm_model import surrogate_posterior, surrogate_posterior_svi
 from ..sample.save import load_samples
 from ..density.rnn import load
 from ..density.transformer import load as load_transformer
+from ..sites import make_site_inference_data
 from mox.seq2seq.rnn import apply_surrogate
 import numpyro
 import numpyro.distributions as dist
@@ -158,65 +157,12 @@ def run(args):
             )
         if args.prevalence is None or args.incidence is None:
             raise ValueError('Both prevalence and incidence required')
-        prev = pd.read_csv(args.prevalence)
-        inc = pd.read_csv(args.incidence)
+
+        # Load site data
         if args.sites is None:
             raise ValueError('Site files are required for IBM')
-        sites = import_sites(args.sites)
-        site_description = ['iso3c', 'name_1', 'urban_rural']
-        prev = pd.merge(
-            prev,
-            sites['interventions'][site_description],
-            how='left'
-        ).sort_values(
-            'urban_rural',
-            ascending=False # prefer urban
-        ).drop_duplicates(site_description)
-        inc = pd.merge(
-            inc,
-            sites['interventions'][site_description],
-            how='left'
-        ).sort_values(
-            'urban_rural',
-            ascending=False # prefer urban
-        ).drop_duplicates(site_description)
-        site_samples = pd.concat(
-            [prev[site_description], inc[site_description]]
-        ).drop_duplicates()
-        n_sites = len(site_samples)
         start_year, end_year = 1985, 2018
-        sites = pad_sites(sites, start_year, end_year)
-        x_sites = sites_to_tree(site_samples, sites)
-        site_index = site_samples.reset_index(drop=True).reset_index().set_index(
-            site_description
-        )
-        prev_index = site_index.loc[
-            list(prev[site_description].itertuples(index=False))
-        ]['index'].values
-        inc_index = site_index.loc[
-            list(inc[site_description].itertuples(index=False))
-        ]['index'].values
-        #NOTE: truncating very small ages
-        prev_lar = jnp.array(prev.PR_LAR, dtype=jnp.int32)
-        prev_uar = jnp.array(prev.PR_UAR, dtype=jnp.int32)
-        inc_lar = jnp.array(inc.INC_LAR, dtype=jnp.int32)
-        inc_uar = jnp.array(inc.INC_UAR, dtype=jnp.int32)
-        prev_start_time = jnp.array(
-            (prev.START_YEAR - start_year),
-            dtype=jnp.int32
-        ) * 12
-        prev_end_time = jnp.array(
-            (prev.END_YEAR - start_year),
-            dtype=jnp.int32
-        ) * 12
-        inc_start_time = jnp.array(
-            (inc.START_YEAR.values - start_year), #type: ignore
-            dtype=jnp.int32
-        ) * 12 + inc.START_MONTH.values
-        inc_end_time = jnp.array(
-            (inc.END_YEAR.values - start_year), #type: ignore
-            dtype=jnp.int32
-        ) * 12 + inc.END_MONTH.values
+        sites = make_site_inference_data(args.sites, start_year, end_year)
 
         def mean_impl(x_intrinsic, x_eir):
             x = {
@@ -264,14 +210,17 @@ def run(args):
 
         def stoch_impl(x_intrinsic, x_eir):
             x = {
-                'intrinsic': tree_map(lambda leaf: jnp.full((n_sites,), leaf), x_intrinsic),
+                'intrinsic': tree_map(
+                    lambda leaf: jnp.full((sites.n_sites,), leaf),
+                    x_intrinsic
+                ),
                 'init_EIR': x_eir,
-                'seasonality': x_sites['seasonality'],
-                'vector_composition': x_sites['vectors']
+                'seasonality': sites.x_sites['seasonality'],
+                'vector_composition': sites.x_sites['vectors']
             }
             x_seq = {
-                'interventions': x_sites['interventions'],
-                'demography': x_sites['demography']
+                'interventions': sites.x_sites['interventions'],
+                'demography': sites.x_sites['demography']
             }
             x_in = (x, x_seq)
 
@@ -287,8 +236,8 @@ def run(args):
                 'n_detect',
                 dist.LeftTruncatedDistribution(
                     dist.Normal(
-                        mu['n_detect'][prev_index],
-                        sigma['n_detect'][prev_index],
+                        mu['n_detect'],
+                        sigma['n_detect'],
                     ),
                     0
                 )
@@ -297,9 +246,9 @@ def run(args):
                 'n_detect_n',
                 dist.LeftTruncatedDistribution(
                     dist.Normal(
-                    mu['n'][prev_index],
-                        sigma['n'][prev_index],
-                    ),
+                    mu['n'],
+                    sigma['n']
+                ),
                 0
                 )
             )
@@ -307,8 +256,8 @@ def run(args):
                 'inc',
                 dist.LeftTruncatedDistribution(
                     dist.Normal(
-                        mu['n_inc_clinical'][inc_index],
-                        sigma['n_inc_clinical'][inc_index]
+                        mu['n_inc_clinical'],
+                        sigma['n_inc_clinical']
                     ),
                     0
                 )
@@ -317,8 +266,8 @@ def run(args):
                 'inc_n',
                 dist.LeftTruncatedDistribution(
                     dist.Normal(
-                        mu['n'][inc_index],
-                        sigma['n'][inc_index],
+                        mu['n'],
+                        sigma['n']
                     ),
                     0
                 )
@@ -327,18 +276,18 @@ def run(args):
             site_prev = _aggregate(
                 n_detect,
                 n_detect_n,
-                prev_lar,
-                prev_uar,
-                prev_start_time,
-                prev_end_time
+                sites.prev_lar,
+                sites.prev_uar,
+                sites.prev_start_time,
+                sites.prev_end_time
             )
             site_inc = _aggregate(
                 n_inc_clinical,
                 inc_n,
-                inc_lar,
-                inc_uar,
-                inc_start_time,
-                inc_end_time
+                sites.inc_lar,
+                sites.inc_uar,
+                sites.inc_start_time,
+                sites.inc_end_time
             )
             return site_prev, site_inc
 
@@ -355,13 +304,11 @@ def run(args):
                 n_train_samples=args.n_train_svi,
                 n_samples=args.n_samples,
                 impl=impl,
-                n_sites=n_sites,
-                n_prev=prev.N.values,
-                prev=prev.N_POS.values,
-                prev_index=prev_index,
-                inc_risk_time=inc.PYO.values * 365., #type: ignore
-                inc=jnp.array(jnp.round(inc.INC.values), dtype=jnp.int64), #type: ignore
-                inc_index=inc_index
+                n_sites=sites.n_sites,
+                n_prev=sites.n_prev,
+                prev=sites.prev,
+                inc_risk_time=sites.inc_risk_time,
+                inc=sites.inc
             )
         else:
             i_data = surrogate_posterior(
@@ -369,13 +316,11 @@ def run(args):
                 impl=impl,
                 n_warmup=args.warmup,
                 n_samples=args.n_samples,
-                n_sites=n_sites,
-                n_prev=prev.N.values,
-                prev=prev.N_POS.values,
-                prev_index=prev_index,
-                inc_risk_time=inc.PYO.values * 365., #type: ignore
-                inc=jnp.array(jnp.round(inc.INC.values), dtype=jnp.int64), #type: ignore
-                inc_index=inc_index
+                n_sites=sites.n_sites,
+                n_prev=sites.n_prev,
+                prev=sites.prev,
+                inc_risk_time=sites.inc_risk_time,
+                inc=sites.inc
             )
 
         logging.info('Saving results')

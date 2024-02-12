@@ -158,7 +158,6 @@ def _parse_interventions(
     samples: pd.DataFrame,
     df: pd.DataFrame
     ) -> Dict:
-    
     int_values = df.pivot(
         index=['iso3c', 'name_1', 'urban_rural'],
         columns='year',
