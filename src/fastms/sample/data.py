@@ -2,25 +2,27 @@ from typing import Tuple, Dict
 import arviz as az
 import numpy as np
 from numpy.typing import NDArray
+from jaxtyping import Array
 from jax.tree_util import tree_map
+from jax import random
+import jax.numpy as jnp
 
 from ..sites import make_site_inference_data
 from ..sample.ibm import run_ibm
 from ..sample.prior import _prior_intrinsic_space
 
 def sample_from_data(
+    key: Array,
     data_path: str,
     sites_path: str,
     burnin: int,
     sample_start: int,
     n_samples: int,
-    site_start: int,
-    n_sites: int,
     cores: int=1,
     start_year: int=1985,
     end_year: int=2018,
     population: int=100000,
-    ) -> Tuple[Tuple[Dict, Dict, NDArray], NDArray]:
+    ) -> Tuple[Tuple[Tuple[Dict, Dict, NDArray], NDArray], Array, Array]:
     """Sample from the posterior distribution of the IBM model given data.
 
     Args:
@@ -46,17 +48,21 @@ def sample_from_data(
 
     # Extract samples from the posterior distribution
     sample_end = sample_start + n_samples
-    if n_sites == -1:
-        site_end = sites.n_sites
-    else:
-        site_end = site_start + n_sites
     init_EIR = np.array(
         az.extract(
             data,
             var_names='eir',
             rng=False
         )
-    )[site_start:site_end, sample_start:sample_end].reshape(-1)
+    )
+    sample_space = init_EIR.shape[0] * init_EIR.shape[1] # sites * intrinsic samples
+    samples = random.permutation(
+        key,
+        jnp.arange(sample_space)
+    )[sample_start:sample_end]
+    site_samples = samples // init_EIR.shape[1]
+    intrinsic_samples = samples % init_EIR.shape[1]
+    init_EIR = init_EIR[site_samples, intrinsic_samples].reshape(-1)
     intrinsic_vars = list(_prior_intrinsic_space.keys())
     intrinsic_draws = az.extract(
         data,
@@ -64,14 +70,11 @@ def sample_from_data(
         rng=False
     )
     X_intrinsic = {
-        x: np.tile(
-            np.array(intrinsic_draws[x][sample_start:sample_end]),
-            n_sites
-        )
+        x: np.array(intrinsic_draws[x][intrinsic_samples])
         for x in intrinsic_vars
     }
     site_df = sites.site_index.loc[
-        sites.site_index.iloc[site_start:site_end].index.repeat(n_samples)
+        sites.site_index.iloc[site_samples].index.repeat(n_samples)
     ]
     y = run_ibm(
         X_intrinsic,
@@ -83,7 +86,7 @@ def sample_from_data(
         population=population
     )
     X_sites = tree_map(
-        lambda leaf: leaf[site_start:site_end],
+        lambda leaf: leaf[site_samples],
         sites.x_sites
     )
     X = {
@@ -97,4 +100,4 @@ def sample_from_data(
         'demography': X_sites['demography']
     }
     X_t = np.arange(0, end_year - start_year + 1) * 365
-    return (X, X_seq, X_t), y
+    return ((X, X_seq, X_t), y), site_samples, intrinsic_samples

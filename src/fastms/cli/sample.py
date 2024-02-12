@@ -53,18 +53,6 @@ def add_parser(subparsers):
         help='Number of samples to make'
     )
     sample_parser.add_argument(
-        '--n_sites',
-        type=int,
-        default=-1,
-        help='Number of sites to use for data sampling'
-    )
-    sample_parser.add_argument(
-        '--site_start',
-        type=int,
-        default=0,
-        help='Index for the first site to use for data sampling'
-    )
-    sample_parser.add_argument(
         '--seed',
         type=int,
         default=42,
@@ -152,14 +140,13 @@ def run(args):
         elif args.intrinsic_strategy == 'data':
             if args.data is None:
                 raise ValueError('--data must be set')
-            samples = sample_from_data(
+            samples, site_i, intrinsic_i = sample_from_data(
+                PRNGKey(args.seed),
                 args.data,
                 args.sites,
                 args.burnin,
                 n_samples=args.number,
                 sample_start=args.data_start,
-                site_start=args.site_start,
-                n_sites=args.n_sites,
                 cores=args.cores,
                 start_year=args.start,
                 end_year=args.end,
@@ -167,8 +154,9 @@ def run(args):
             )
             if args.aggregate == 'monthly':
                 samples = monthly(samples)
-            save_compressed_pytree(samples, args.output)
-            save_pytree_def(samples, args.output_def)
+            all_outputs = (samples, site_i, intrinsic_i)
+            save_compressed_pytree(all_outputs, args.output)
+            save_pytree_def(all_outputs, args.output_def)
         else:
             raise NotImplementedError('Sampling strategy not implemented yet')
     else:
