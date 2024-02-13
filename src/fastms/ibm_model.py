@@ -24,7 +24,9 @@ MIN_RATE = 1e-12
 def model(
     n_sites: int,
     n_prev: Array,
+    prev_index: Array,
     inc_risk_time: Array,
+    inc_index: Array,
     impl: Callable[[Dict, Array],Tuple[Array, Array]],
     prev: Optional[Array]=None,
     inc: Optional[Array]=None,
@@ -138,11 +140,11 @@ def model(
 
     alpha = straight_through(
         lambda x: jnp.minimum(jnp.maximum(x, MIN_RATE), 1.),
-        (prev_stats) * theta
+        (prev_stats) * theta[prev_index]
     )
     beta = straight_through(
         lambda x: jnp.minimum(jnp.maximum(x, MIN_RATE), 1.),
-        (1. - prev_stats) * theta
+        (1. - prev_stats) * theta[prev_index]
     )
 
     numpyro.sample(
@@ -161,15 +163,15 @@ def model(
 
     mean = straight_through(
         lambda x: jnp.maximum(x, MIN_RATE),
-        inc_stats * inc_risk_time * mu
+        inc_stats * inc_risk_time * mu[inc_index]
     )
 
     numpyro.sample(
         'obs_inc',
         dist.Independent(
             dist.GammaPoisson(
-                mean * q,
-                q, #type: ignore
+                mean * q[inc_index],
+                q[inc_index], #type: ignore
                 validate_args=True
             ),
             1
