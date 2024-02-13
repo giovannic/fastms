@@ -187,10 +187,10 @@ def run(args):
                 x_in
             )
 
-            n_detect = mu['n_detect']
-            n_detect_n = mu['n']
-            n_inc_clinical = mu['n_inc_clinical']
-            inc_n = mu['n']
+            n_detect = mu['n_detect'][sites.prev_index]
+            n_detect_n = mu['n'][sites.prev_index]
+            n_inc_clinical = mu['n_inc_clinical'][sites.inc_index]
+            inc_n = mu['n'][sites.inc_index]
 
             site_prev = _aggregate(
                 n_detect,
@@ -239,8 +239,8 @@ def run(args):
                 'n_detect',
                 dist.LeftTruncatedDistribution(
                     dist.Normal(
-                        mu['n_detect'],
-                        sigma['n_detect'],
+                        mu['n_detect'][sites.prev_index],
+                        sigma['n_detect'][sites.prev_index]
                     ),
                     0
                 )
@@ -249,18 +249,18 @@ def run(args):
                 'n_detect_n',
                 dist.LeftTruncatedDistribution(
                     dist.Normal(
-                    mu['n'],
-                    sigma['n']
-                ),
-                0
+                        mu['n'][sites.prev_index],
+                        sigma['n'][sites.prev_index]
+                    ),
+                    0
                 )
             )
             n_inc_clinical = numpyro.sample(
                 'inc',
                 dist.LeftTruncatedDistribution(
                     dist.Normal(
-                        mu['n_inc_clinical'],
-                        sigma['n_inc_clinical']
+                        mu['n_inc_clinical'][sites.inc_index],
+                        sigma['n_inc_clinical'][sites.inc_index]
                     ),
                     0
                 )
@@ -269,8 +269,8 @@ def run(args):
                 'inc_n',
                 dist.LeftTruncatedDistribution(
                     dist.Normal(
-                        mu['n'],
-                        sigma['n']
+                        mu['n'][sites.inc_index],
+                        sigma['n'][sites.inc_index]
                     ),
                     0
                 )
@@ -309,9 +309,11 @@ def run(args):
                 impl=impl,
                 n_sites=sites.n_sites,
                 n_prev=sites.n_prev,
+                prev_index=sites.prev_index,
                 prev=sites.prev,
                 inc_risk_time=sites.inc_risk_time,
-                inc=sites.inc
+                inc=sites.inc,
+                inc_index=sites.inc_index
             )
         else:
             i_data = surrogate_posterior(
@@ -321,9 +323,11 @@ def run(args):
                 n_samples=args.n_samples,
                 n_sites=sites.n_sites,
                 n_prev=sites.n_prev,
+                prev_index=sites.prev_index,
                 prev=sites.prev,
                 inc_risk_time=sites.inc_risk_time,
-                inc=sites.inc
+                inc=sites.inc,
+                inc_index=sites.inc_index
             )
 
         logging.info('Saving results')

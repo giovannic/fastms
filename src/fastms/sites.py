@@ -48,29 +48,36 @@ def make_site_inference_data(sites_path, start_year, end_year) -> SiteData:
 
     # Merge site data with prevalence and incidence data
     site_description = ['iso3c', 'name_1', 'urban_rural']
+    urban_sites = sites['interventions'][site_description].sort_values(
+        'urban_rural',
+        ascending=False # prefer urban
+    ).drop_duplicates(['iso3c', 'name_1'])
     prev = pd.merge(
         prev,
-        sites['interventions'][site_description],
+        urban_sites,
         how='left'
-    ).sort_values(
-        'urban_rural',
-        ascending=False # prefer urban
-    ).drop_duplicates(site_description)
+    )
     inc = pd.merge(
         inc,
-        sites['interventions'][site_description],
+        urban_sites,
         how='left'
-    ).sort_values(
-        'urban_rural',
-        ascending=False # prefer urban
-    ).drop_duplicates(site_description)
-    site_samples = pd.concat(
-        [prev[site_description], inc[site_description]]
+    )
+
+    # Only keep sites with both prevalence and incidence data
+    site_samples = pd.merge(
+        prev[site_description],
+        inc[site_description]
     ).drop_duplicates()
-    n_sites = len(site_samples)
+
+    prev = pd.merge(prev, site_samples)
+    inc = pd.merge(inc, site_samples)
+
+    # Create parameters for surrogate modelling
     start_year, end_year = 1985, 2018
     sites = pad_sites(sites, start_year, end_year)
     x_sites = sites_to_tree(site_samples, sites)
+
+    # Create site, prevalence and incidence indices
     site_index = site_samples.reset_index(drop=True).reset_index().set_index(
         site_description
     )
@@ -80,27 +87,31 @@ def make_site_inference_data(sites_path, start_year, end_year) -> SiteData:
     inc_index = jnp.array(site_index.loc[
         list(inc[site_description].itertuples(index=False))
     ]['index'].values)
+
+    # Create indices for aggregation
     #NOTE: truncating very small ages
-    prev_lar = jnp.array(prev.PR_LAR, dtype=jnp.int32)
-    prev_uar = jnp.array(prev.PR_UAR, dtype=jnp.int32)
-    inc_lar = jnp.array(inc.INC_LAR, dtype=jnp.int32)
-    inc_uar = jnp.array(inc.INC_UAR, dtype=jnp.int32)
+    prev_lar = jnp.array(prev.PR_LAR, dtype=jnp.int64)
+    prev_uar = jnp.array(prev.PR_UAR, dtype=jnp.int64)
+    inc_lar = jnp.array(inc.INC_LAR, dtype=jnp.int64)
+    inc_uar = jnp.array(inc.INC_UAR, dtype=jnp.int64)
     prev_start_time = jnp.array(
         (prev.START_YEAR - start_year),
-        dtype=jnp.int32
+        dtype=jnp.int64
     ) * 12
     prev_end_time = jnp.array(
         (prev.END_YEAR - start_year),
-        dtype=jnp.int32
+        dtype=jnp.int64
     ) * 12
     inc_start_time = jnp.array(
         (inc.START_YEAR.values - start_year), #type: ignore
-        dtype=jnp.int32
+        dtype=jnp.int64
     ) * 12 + inc.START_MONTH.values
     inc_end_time = jnp.array(
         (inc.END_YEAR.values - start_year), #type: ignore
-        dtype=jnp.int32
+        dtype=jnp.int64
     ) * 12 + inc.END_MONTH.values
+
+    n_sites = len(site_samples)
 
     return SiteData(
         prev_lar=prev_lar,
