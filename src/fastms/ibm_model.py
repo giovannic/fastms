@@ -1,20 +1,21 @@
 from jaxtyping import Array
 from typing import Callable, Optional, Dict, Tuple
-import numpyro #type: ignore
+import arviz as az
+import jax
 from jax import numpy as jnp, lax
+from jax import random
+import numpyro
 from numpyro import distributions as dist, optim
 from numpyro.infer import (
     MCMC,
     NUTS,
     Predictive,
     SVI,
-    Trace_ELBO
+    Trace_ELBO,
+    log_likelihood
 )
 from numpyro.infer.autoguide import AutoNormal
-import arviz as az
 
-from jax import random
-import jax
 import logging
 
 cpu_device = jax.devices('cpu')[0]
@@ -54,11 +55,7 @@ def model(
         # Overdispersion variables
         q = numpyro.sample(
             'q',
-            dist.Beta(10., 1.)
-        )
-        mu = numpyro.sample(
-            'mu',
-            dist.Gamma(2., 2.)
+            dist.Exponential(2.)
         )
         theta = numpyro.sample(
             'theta',
@@ -163,14 +160,14 @@ def model(
 
     mean = straight_through(
         lambda x: jnp.maximum(x, MIN_RATE),
-        inc_stats * inc_risk_time * mu[inc_index]
+        inc_stats * inc_risk_time
     )
 
     numpyro.sample(
         'obs_inc',
         dist.Independent(
             dist.GammaPoisson(
-                mean * q[inc_index],
+                mean / q[inc_index],
                 q[inc_index], #type: ignore
                 validate_args=True
             ),
@@ -224,6 +221,11 @@ def surrogate_posterior_svi(
         params=svi_params,
         num_samples=n_samples
     )(post_key)
+    log_likelihoods = log_likelihood(
+        model,
+        posterior_samples,
+        **model_args
+    )
     posterior_samples = _remove_stoch_variables(posterior_samples)
 
     # sample posterior predictive
@@ -243,7 +245,8 @@ def surrogate_posterior_svi(
         observed_data={
             'obs_prev': model_args['prev'],
             'obs_inc': model_args['inc']
-        }
+        },
+        log_likelihood=_to_arviz_dict(log_likelihoods)
     )
     return data
 
