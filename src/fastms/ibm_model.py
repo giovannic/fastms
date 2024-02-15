@@ -297,6 +297,14 @@ def surrogate_posterior(
     )
     return data
 
+def sample_fake_data(key: Array, **model_args):
+    sample_key, key = random.split(key, 2)
+    truth = Predictive(model, num_samples=1)(
+        sample_key,
+        **model_args
+    )
+    return truth
+
 def straight_through(f, x):
     # Create an exactly-zero expression with Sterbenz lemma that has
     # an exactly-one gradient.

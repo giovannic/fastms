@@ -1,6 +1,11 @@
+import pickle
 from jax import numpy as jnp, random
 from jax.tree_util import tree_map
-from ..ibm_model import surrogate_posterior, surrogate_posterior_svi
+from ..ibm_model import (
+    surrogate_posterior,
+    surrogate_posterior_svi,
+    sample_fake_data
+)
 from ..sample.save import load_samples
 from ..density.rnn import load
 from ..density.transformer import load as load_transformer
@@ -100,6 +105,12 @@ def add_parser(subparsers):
         type=bool,
         default=False,
         help='Whether to use MCMC'
+    )
+    sample_parser.add_argument(
+        '--fake',
+        type=bool,
+        default=False,
+        help='Whether to use fake data for validation'
     )
     sample_parser.add_argument(
         '--stoch',
@@ -299,7 +310,26 @@ def run(args):
         else:
             impl = mean_impl
 
+        # Make fake data for validation
         key = random.PRNGKey(args.seed)
+        if args.fake:
+            truth = sample_fake_data(
+                key,
+                impl=impl,
+                n_sites=sites.n_sites,
+                n_prev=sites.n_prev,
+                prev_index=sites.prev_index,
+                inc_risk_time=sites.inc_risk_time,
+                inc_index=sites.inc_index
+            )
+            sites.prev = truth['obs_prev']
+            sites.inc = truth['obs_inc']
+
+            logging.info('Saving fake data')
+            truth_path = args.output + '_truth.pkl'
+            with open(truth_path, 'wb') as f:
+                pickle.dump(truth, f)
+
         key_i, key = random.split(key)
         if not args.mcmc:
             i_data = surrogate_posterior_svi(
