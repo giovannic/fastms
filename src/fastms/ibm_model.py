@@ -49,7 +49,7 @@ def model(
     with numpyro.plate('sites', n_sites):
         eir = numpyro.sample(
             'eir',
-            dist.Uniform(0., 1000.)
+            dist.Uniform(0., 400.)
         )
 
         # Overdispersion variables
@@ -67,7 +67,7 @@ def model(
     b0 = numpyro.sample('b0', dist.Beta(1., 1.))
     ib0 = numpyro.sample(
         'ib0',
-        dist.TruncatedDistribution(dist.Cauchy(50., 10.), low=0., high=100.)
+        dist.TruncatedDistribution(dist.Cauchy(50., 10.), low=25., high=75.)
     )
     
     # Clinical immunity
@@ -77,13 +77,13 @@ def model(
     phi1 = numpyro.sample('phi1', dist.Beta(1., 2.))
     ic0 = numpyro.sample(
         'ic0',
-        dist.LeftTruncatedDistribution(dist.Cauchy(100., 10.), low=0.)
+        dist.TruncatedDistribution(dist.Cauchy(25., 1.), low=5., high=50.)
     )
     pcm = numpyro.sample('pcm', dist.Beta(1., 1.))
     rm = numpyro.sample(
         'rm',
-        dist.LeftTruncatedDistribution(dist.Cauchy(200., 10.), low=0.)
-    ) #TODO: Should this be inverse?
+        dist.TruncatedDistribution(dist.Cauchy(50., 10.), low=5., high=100.)
+    )
     
     # Detection immunity
     kd = numpyro.sample('kd', dist.LogNormal(0., 1.))
@@ -91,7 +91,7 @@ def model(
     d1 = numpyro.sample('d1', dist.Beta(1., 5.))
     id0 = numpyro.sample(
         'id0',
-        dist.LeftTruncatedDistribution(dist.Cauchy(25., 1.), low=5.)
+        dist.TruncatedDistribution(dist.Cauchy(25., 1.), low=5., high=50.)
     )
     fd0 = numpyro.sample('fd0', dist.Beta(1., 1.))
     gammad = numpyro.sample('gammad', dist.LogNormal(0., 1.))
