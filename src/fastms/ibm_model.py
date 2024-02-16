@@ -29,6 +29,8 @@ def model(
     inc_risk_time: Array,
     inc_index: Array,
     impl: Callable[[Dict, Array],Tuple[Array, Array]],
+    eir_mu: Array,
+    eir_sigma: Array,
     prev: Optional[Array]=None,
     inc: Optional[Array]=None,
     ):
@@ -45,13 +47,16 @@ def model(
     :param prev: Array an array of observed prevalence statistics
     :param inc: Array an array of observed incidence statistics
     """
-    # Pre-erythrocytic immunity
-    with numpyro.plate('sites', n_sites):
-        eir = numpyro.sample(
-            'eir',
-            dist.Uniform(0., 1000.)
+    eir = numpyro.sample(
+        'eir',
+        dist.TruncatedDistribution(
+            dist.Normal(eir_mu, eir_sigma), #type: ignore
+            low=0.,
+            high=400.
         )
+    )
 
+    with numpyro.plate('sites', n_sites):
         # Overdispersion variables
         q = numpyro.sample(
             'q',
@@ -62,6 +67,7 @@ def model(
             dist.Beta(10., 1.)
         )
 
+    # Pre-erythrocytic immunity
     kb = numpyro.sample('kb', dist.LogNormal(0., 1.))
     ub = numpyro.sample('ub', dist.LogNormal(0., 1.))
     b0 = numpyro.sample('b0', dist.Beta(1., 1.))
@@ -83,7 +89,7 @@ def model(
     rm = numpyro.sample(
         'rm',
         dist.LeftTruncatedDistribution(dist.Cauchy(200., 10.), low=0.)
-    ) #TODO: Should this be inverse?
+    )
     
     # Detection immunity
     kd = numpyro.sample('kd', dist.LogNormal(0., 1.))

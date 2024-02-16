@@ -1,4 +1,6 @@
 import pandas as pd
+import numpy as np
+import scipy as sp
 from .sample.sites import import_sites, pad_sites, sites_to_tree
 from jax import numpy as jnp
 import dataclasses
@@ -23,8 +25,9 @@ class SiteData:
     x_sites: Array
     site_df_dict: dict
     site_index: pd.DataFrame
+    eir_mu: Array
+    eir_sigma: Array
     n_sites: int
-
 
 def make_site_inference_data(sites_path, start_year, end_year) -> SiteData:
     """Make inference data from site data.
@@ -111,6 +114,43 @@ def make_site_inference_data(sites_path, start_year, end_year) -> SiteData:
         dtype=jnp.int64
     ) * 12 + inc.END_MONTH.values
 
+    # Estimate EIR
+    eir_path = sites_path + '/eir.csv'
+    eir = pd.read_csv(eir_path)
+    eir_ests = [
+        'single_est',
+        'PSC',
+        'HLC',
+        'range_est_lower',
+        'range_est_upper'
+    ]
+    eir['min_est'], eir['max_est']  = (
+        eir[eir_ests].min(axis=1),
+        eir[eir_ests].max(axis=1)
+    )
+    eir_ranges = eir.groupby(['iso3c', 'name_1']).agg(
+        {'min_est': 'min', 'max_est': 'max'}
+    ).reset_index()
+    eir_ranges['mu'] = eir_ranges[['min_est', 'max_est']].mean(axis=1)
+
+    def est_sd(mean, upper):
+        assumed_q = .75
+        return (upper-mean)/sp.stats.norm.ppf(assumed_q)
+        
+    def est_sd_row(row):
+        if row.min_est == row.max_est:
+            return 10
+        return est_sd(row.mu, row.max_est)
+        
+    eir_ranges['sigma'] = eir_ranges.apply(est_sd_row, axis=1)
+    mean_est = np.mean([eir_ranges.min_est.min(), eir_ranges.max_est.max()])
+    eir_ranges.loc[eir_ranges.mu.isna(), 'mu'] = mean_est #type: ignore
+    eir_ranges.loc[eir_ranges.sigma.isna(), 'sigma'] = est_sd(
+        mean_est,
+        eir_ranges.max_est.max()
+    )
+    eir_ranges = pd.merge(site_samples, eir_ranges, how='left')
+
     n_sites = len(site_samples)
 
     return SiteData(
@@ -131,5 +171,7 @@ def make_site_inference_data(sites_path, start_year, end_year) -> SiteData:
         x_sites=x_sites,
         site_df_dict=sites,
         site_index=site_samples,
+        eir_mu=jnp.array(eir_ranges.mu),
+        eir_sigma=jnp.array(eir_ranges.sigma),
         n_sites=n_sites
     )

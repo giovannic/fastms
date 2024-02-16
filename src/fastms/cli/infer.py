@@ -320,7 +320,9 @@ def run(args):
                 n_prev=sites.n_prev,
                 prev_index=sites.prev_index,
                 inc_risk_time=sites.inc_risk_time,
-                inc_index=sites.inc_index
+                inc_index=sites.inc_index,
+                eir_mu=sites.eir_mu,
+                eir_sigma=sites.eir_sigma
             )
             sites.prev = truth['obs_prev']
             sites.inc = truth['obs_inc']
@@ -343,7 +345,9 @@ def run(args):
                 prev=sites.prev,
                 inc_risk_time=sites.inc_risk_time,
                 inc=sites.inc,
-                inc_index=sites.inc_index
+                inc_index=sites.inc_index,
+                eir_mu=sites.eir_mu,
+                eir_sigma=sites.eir_sigma
             )
         else:
             i_data = surrogate_posterior(
@@ -357,7 +361,9 @@ def run(args):
                 prev=sites.prev,
                 inc_risk_time=sites.inc_risk_time,
                 inc=sites.inc,
-                inc_index=sites.inc_index
+                inc_index=sites.inc_index,
+                eir_mu=sites.eir_mu,
+                eir_sigma=sites.eir_sigma
             )
 
         logging.info('Saving results')
