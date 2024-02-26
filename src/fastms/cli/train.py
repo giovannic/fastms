@@ -173,7 +173,8 @@ class RNNTrainingInterface(TrainingInterface):
         self.dtype = dtype
 
     def make_model(self, samples):
-        return build(samples, dtype=self.dtype)
+        with jax.default_device(cpu_device):
+            return build(samples, dtype=self.dtype)
 
     def make_net(self, model, samples) -> nn.Module:
         if self.density:

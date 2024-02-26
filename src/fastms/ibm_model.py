@@ -14,8 +14,6 @@ from numpyro.infer import (
     Trace_ELBO,
     log_likelihood
 )
-from numpyro.infer.autoguide import AutoNormal
-
 import logging
 
 cpu_device = jax.devices('cpu')[0]
@@ -53,50 +51,57 @@ def model(
         )
 
         # Overdispersion variables
-        q = numpyro.sample(
-            'q',
-            dist.Exponential(2.)
-        )
-        theta = numpyro.sample(
-            'theta',
-            dist.Beta(10., 1.)
-        )
+        #q = numpyro.sample(
+        #    'q',
+        #    dist.Exponential(2.)
+        #)
+        #theta = numpyro.sample(
+        #    'theta',
+        #    dist.Beta(1., 10.)
+        #)
 
-    kb = numpyro.sample('kb', dist.LogNormal(0., 1.))
+    kb = numpyro.deterministic(
+        '_kb',
+        1 + numpyro.sample('kb', dist.LogNormal(0., .25))
+    )
     ub = numpyro.sample('ub', dist.LogNormal(0., 1.))
     b0 = numpyro.sample('b0', dist.Beta(1., 1.))
     ib0 = numpyro.sample(
         'ib0',
-        dist.TruncatedDistribution(dist.Cauchy(50., 10.), low=25., high=75.)
+        dist.TruncatedDistribution(dist.Normal(50., 20.), low=25., high=75.)
     )
     
     # Clinical immunity
-    kc = numpyro.sample('kc', dist.LogNormal(0., 1.))
+
+    kc = numpyro.deterministic(
+        '_kc',
+        1 + numpyro.sample('kc', dist.LogNormal(0., .25))
+    )
     uc = numpyro.sample('uc', dist.LogNormal(0., 1.))
-    phi0 = numpyro.sample('phi0', dist.Beta(5., 1.))
-    phi1 = numpyro.sample('phi1', dist.Beta(1., 2.))
+    phi0 = numpyro.sample('phi0', dist.Beta(10., 1.))
+    phi1 = numpyro.sample('phi1', dist.Beta(1., 10.))
     ic0 = numpyro.sample(
         'ic0',
-        dist.TruncatedDistribution(dist.Cauchy(25., 1.), low=5., high=50.)
+        dist.TruncatedDistribution(dist.Normal(25., 10.), low=5., high=50.)
     )
     pcm = numpyro.sample('pcm', dist.Beta(1., 1.))
     rm = numpyro.sample(
         'rm',
-        dist.TruncatedDistribution(dist.Cauchy(50., 10.), low=5., high=100.)
+        dist.TruncatedDistribution(dist.Normal(50., 20.), low=5., high=100.)
     )
     
     # Detection immunity
-    kd = numpyro.sample('kd', dist.LogNormal(0., 1.))
+    kd = numpyro.sample('kd', dist.LogNormal(0., .25))
     ud = numpyro.sample('ud', dist.LogNormal(0., 1.))
-    d1 = numpyro.sample('d1', dist.Beta(1., 5.))
+    d1 = numpyro.sample('d1', dist.Beta(1., 10.))
     id0 = numpyro.sample(
         'id0',
-        dist.TruncatedDistribution(dist.Cauchy(25., 1.), low=5., high=50.)
+        dist.TruncatedDistribution(dist.Normal(25., 10.), low=5., high=50.)
     )
     fd0 = numpyro.sample('fd0', dist.Beta(1., 1.))
-    gammad = numpyro.sample('gammad', dist.LogNormal(0., 1.))
+    gammad = numpyro.sample('gammad', dist.LogNormal(0., .25))
     ad = numpyro.sample('ad', dist.TruncatedDistribution(
-        dist.Cauchy(50. * 365., 365.),
+        dist.Normal(50. * 365., 365.),
         low=20. * 365.,
         high=80. * 365.
     ))
@@ -135,21 +140,38 @@ def model(
     
     prev_stats, inc_stats = impl(x, eir) #type: ignore
 
-    alpha = straight_through(
-        lambda x: jnp.minimum(jnp.maximum(x, MIN_RATE), 1.),
-        (prev_stats) * theta[prev_index]
-    )
-    beta = straight_through(
-        lambda x: jnp.minimum(jnp.maximum(x, MIN_RATE), 1.),
-        (1. - prev_stats) * theta[prev_index]
-    )
+    #phi = (1 - theta) / theta
+    #alpha = straight_through(
+    #    lambda x: jnp.minimum(jnp.maximum(x, MIN_RATE), 1.),
+    #    (prev_stats) * phi[prev_index]
+    #)
+    #beta = straight_through(
+    #    lambda x: jnp.minimum(jnp.maximum(x, MIN_RATE), 1.),
+    #    (1. - prev_stats) * phi[prev_index]
+    #)
 
+    #numpyro.sample(
+    #    'obs_prev',
+    #    dist.Independent(
+    #        dist.BetaBinomial(
+    #            concentration1=alpha,
+    #            concentration0=beta,
+    #            total_count=n_prev, #type: ignore
+    #            validate_args=True
+    #        ),
+    #        1
+    #    ),
+    #    obs=prev
+    #)
+    probs = straight_through(
+        lambda x: jnp.minimum(jnp.maximum(x, MIN_RATE), 1.),
+        prev_stats
+    )
     numpyro.sample(
         'obs_prev',
         dist.Independent(
-            dist.BetaBinomial(
-                concentration1=alpha,
-                concentration0=beta,
+            dist.Binomial(
+                probs=probs,
                 total_count=n_prev, #type: ignore
                 validate_args=True
             ),
@@ -163,12 +185,23 @@ def model(
         inc_stats * inc_risk_time
     )
 
+    #numpyro.sample(
+    #    'obs_inc',
+    #    dist.Independent(
+    #        dist.GammaPoisson(
+    #            mean / q[inc_index],
+    #            q[inc_index], #type: ignore
+    #            validate_args=True
+    #        ),
+    #        1
+    #    ),
+    #    obs=inc
+    #)
     numpyro.sample(
         'obs_inc',
         dist.Independent(
-            dist.GammaPoisson(
-                mean / q[inc_index],
-                q[inc_index], #type: ignore
+            dist.Poisson(
+                mean,
                 validate_args=True
             ),
             1
@@ -178,6 +211,7 @@ def model(
 
 def surrogate_posterior_svi(
         key: Array,
+        autoguide,
         n_train_samples: int = 10000,
         n_samples: int = 100,
         **model_args
@@ -198,19 +232,20 @@ def surrogate_posterior_svi(
     prior = _remove_stoch_variables(prior)
 
     # initialise SVI
-    guide = AutoNormal(model)
+    guide = autoguide(model)
+
     svi = SVI(
         model,
         guide,
-        optim.Adam(1e-3),
-        loss=Trace_ELBO(),
+        optim.ClippedAdam(1e-4),
+        loss=Trace_ELBO(num_particles=8),
         **model_args
     )
 
     # train SVI
     logging.info('Training SVI')
     sample_key, key = random.split(key, 2)
-    svi_result = svi.run(sample_key, n_train_samples)
+    svi_result = svi.run(sample_key, n_train_samples, stable_update=True)
     svi_params = svi_result.params
 
     # sample posterior
@@ -256,7 +291,7 @@ def surrogate_posterior(
         n_warmup: int = 100,
         n_chains: int = 10,
         **model_args
-        ):
+    ):
     # NOTE: Reverse mode has lead to initialisation errors for dmeq
     kernel = NUTS(model)
 

@@ -1,4 +1,5 @@
 import pickle
+from functools import partial
 from jax import numpy as jnp, random
 from jax.tree_util import tree_map
 from ..ibm_model import (
@@ -13,6 +14,12 @@ from ..sites import make_site_inference_data
 from mox.seq2seq.rnn import apply_surrogate
 import numpyro
 import numpyro.distributions as dist
+from numpyro.infer.autoguide import (
+    AutoNormal,
+    AutoBNAFNormal,
+    AutoLaplaceApproximation
+)
+
 import logging
 
 def add_parser(subparsers):
@@ -95,16 +102,22 @@ def add_parser(subparsers):
         default=100
     )
     sample_parser.add_argument(
+        '--n_chains',
+        type=int,
+        help='Number of chains to run',
+        default=4
+    )
+    sample_parser.add_argument(
         '--cores',
         type=int,
         default=1,
         help='Number of cores to use for sample injestion'
     )
     sample_parser.add_argument(
-        '--mcmc',
-        type=bool,
-        default=False,
-        help='Whether to use MCMC'
+        '--inf_model',
+        choices=['la', 'normal', 'bnaf', 'mcmc'],
+        default='la',
+        help='Which inference model to use'
     )
     sample_parser.add_argument(
         '--fake',
@@ -331,9 +344,18 @@ def run(args):
                 pickle.dump(truth, f)
 
         key_i, key = random.split(key)
-        if not args.mcmc:
+        if args.inf_model != 'mcmc':
+            if args.inf_model == 'la':
+                autoguide = AutoLaplaceApproximation
+            elif args.inf_model == 'normal':
+                autoguide = AutoNormal
+            else:
+                assert args.inf_model == 'bnaf'
+                autoguide = partial(AutoBNAFNormal, num_flows=2)
+
             i_data = surrogate_posterior_svi(
                 key_i,
+                autoguide=autoguide,
                 n_train_samples=args.n_train_svi,
                 n_samples=args.n_samples,
                 impl=impl,
@@ -348,6 +370,7 @@ def run(args):
         else:
             i_data = surrogate_posterior(
                 key_i,
+                n_chains=args.n_chains,
                 impl=impl,
                 n_warmup=args.warmup,
                 n_samples=args.n_samples,
