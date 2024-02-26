@@ -6,6 +6,7 @@ from jax import numpy as jnp, lax
 from jax import random
 import numpyro
 from numpyro import distributions as dist, optim
+from numpyro.distributions import transforms as trans
 from numpyro.infer import (
     MCMC,
     NUTS,
@@ -51,20 +52,27 @@ def model(
         )
 
         # Overdispersion variables
-        #q = numpyro.sample(
-        #    'q',
-        #    dist.Exponential(2.)
-        #)
-        #theta = numpyro.sample(
-        #    'theta',
-        #    dist.Beta(1., 10.)
-        #)
+        q = numpyro.sample(
+            'q',
+            dist.Exponential(2.)
+        )
+        theta = numpyro.sample(
+            'theta',
+            dist.Beta(1., 10.)
+        )
 
-    kb = numpyro.deterministic(
-        '_kb',
-        1 + numpyro.sample('kb', dist.LogNormal(0., .25))
+    kb = numpyro.sample(
+        'kb',
+        dist.TransformedDistribution(
+            dist.LogNormal(0., .25),
+            trans.AffineTransform(
+                1.,
+                1.,
+                domain=dist.constraints.positive
+            )
+        )
     )
-    ub = numpyro.sample('ub', dist.LogNormal(0., 1.))
+    ub = numpyro.sample('ub', dist.Gamma(7., 1.))
     b0 = numpyro.sample('b0', dist.Beta(1., 1.))
     ib0 = numpyro.sample(
         'ib0',
@@ -72,12 +80,18 @@ def model(
     )
     
     # Clinical immunity
-
-    kc = numpyro.deterministic(
-        '_kc',
-        1 + numpyro.sample('kc', dist.LogNormal(0., .25))
+    kc = numpyro.sample(
+        'kc',
+        dist.TransformedDistribution(
+            dist.LogNormal(0., .25),
+            trans.AffineTransform(
+                1.,
+                1.,
+                domain=dist.constraints.positive
+            )
+        )
     )
-    uc = numpyro.sample('uc', dist.LogNormal(0., 1.))
+    uc = numpyro.sample('uc', dist.Gamma(7., 1.))
     phi0 = numpyro.sample('phi0', dist.Beta(10., 1.))
     phi1 = numpyro.sample('phi1', dist.Beta(1., 10.))
     ic0 = numpyro.sample(
@@ -92,14 +106,14 @@ def model(
     
     # Detection immunity
     kd = numpyro.sample('kd', dist.LogNormal(0., .25))
-    ud = numpyro.sample('ud', dist.LogNormal(0., 1.))
+    ud = numpyro.sample('ud', dist.Gamma(7., 1.))
     d1 = numpyro.sample('d1', dist.Beta(1., 10.))
     id0 = numpyro.sample(
         'id0',
         dist.TruncatedDistribution(dist.Normal(25., 10.), low=5., high=50.)
     )
     fd0 = numpyro.sample('fd0', dist.Beta(1., 1.))
-    gammad = numpyro.sample('gammad', dist.LogNormal(0., .25))
+    gammad = numpyro.sample('gammad', dist.LogNormal(0., 2.))
     ad = numpyro.sample('ad', dist.TruncatedDistribution(
         dist.Normal(50. * 365., 365.),
         low=20. * 365.,
@@ -140,38 +154,22 @@ def model(
     
     prev_stats, inc_stats = impl(x, eir) #type: ignore
 
-    #phi = (1 - theta) / theta
-    #alpha = straight_through(
-    #    lambda x: jnp.minimum(jnp.maximum(x, MIN_RATE), 1.),
-    #    (prev_stats) * phi[prev_index]
-    #)
-    #beta = straight_through(
-    #    lambda x: jnp.minimum(jnp.maximum(x, MIN_RATE), 1.),
-    #    (1. - prev_stats) * phi[prev_index]
-    #)
-
-    #numpyro.sample(
-    #    'obs_prev',
-    #    dist.Independent(
-    #        dist.BetaBinomial(
-    #            concentration1=alpha,
-    #            concentration0=beta,
-    #            total_count=n_prev, #type: ignore
-    #            validate_args=True
-    #        ),
-    #        1
-    #    ),
-    #    obs=prev
-    #)
-    probs = straight_through(
+    phi = (1 - theta) / theta
+    alpha = straight_through(
         lambda x: jnp.minimum(jnp.maximum(x, MIN_RATE), 1.),
-        prev_stats
+        (prev_stats) * phi[prev_index]
     )
+    beta = straight_through(
+        lambda x: jnp.minimum(jnp.maximum(x, MIN_RATE), 1.),
+        (1. - prev_stats) * phi[prev_index]
+    )
+
     numpyro.sample(
         'obs_prev',
         dist.Independent(
-            dist.Binomial(
-                probs=probs,
+            dist.BetaBinomial(
+                concentration1=alpha,
+                concentration0=beta,
                 total_count=n_prev, #type: ignore
                 validate_args=True
             ),
@@ -185,23 +183,12 @@ def model(
         inc_stats * inc_risk_time
     )
 
-    #numpyro.sample(
-    #    'obs_inc',
-    #    dist.Independent(
-    #        dist.GammaPoisson(
-    #            mean / q[inc_index],
-    #            q[inc_index], #type: ignore
-    #            validate_args=True
-    #        ),
-    #        1
-    #    ),
-    #    obs=inc
-    #)
     numpyro.sample(
         'obs_inc',
         dist.Independent(
-            dist.Poisson(
-                mean,
+            dist.GammaPoisson(
+                mean / q[inc_index],
+                q[inc_index], #type: ignore
                 validate_args=True
             ),
             1
@@ -230,6 +217,14 @@ def surrogate_posterior_svi(
         **prior_args
     )
     prior = _remove_stoch_variables(prior)
+    logging.info('Sampling prior predictive')
+    prior_predictive = Predictive(
+        model,
+        prior,
+        num_samples=n_samples
+    )(prior_key, **prior_args)
+    prior_predictive = _remove_stoch_variables(prior_predictive)
+
 
     # initialise SVI
     guide = autoguide(model)
@@ -277,6 +272,7 @@ def surrogate_posterior_svi(
         posterior=_to_arviz_dict(posterior_samples),
         posterior_predictive=_to_arviz_dict(post_predictive),
         prior=_to_arviz_dict(prior),
+        prior_predictive=_to_arviz_dict(prior_predictive),
         observed_data={
             'obs_prev': model_args['prev'],
             'obs_inc': model_args['inc']
