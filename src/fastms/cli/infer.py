@@ -107,7 +107,7 @@ def add_parser(subparsers):
     sample_parser.add_argument(
         '--n_chains',
         type=int,
-        help='Number of chains to run',
+        help='Number of chains for MCMC inference',
         default=4
     )
     sample_parser.add_argument(

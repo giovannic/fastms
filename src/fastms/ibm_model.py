@@ -9,14 +9,14 @@ from numpyro import distributions as dist, optim
 from numpyro.distributions import transforms as trans
 from numpyro.infer import (
     MCMC,
-    NUTS,
     Predictive,
     SVI,
     Trace_ELBO,
     log_likelihood
 )
-from .sample.prior import _prior_intrinsic_space
-from mox.sampling import sample
+from numpyro.contrib.tfp.mcmc import TFPKernel
+import tensorflow_probability.substrates.jax as tfp
+import arviz as az
 
 import logging
 
@@ -219,24 +219,6 @@ def surrogate_posterior_svi(
         **prior_args
     )
     prior = _remove_stoch_variables(prior)
-    if False:
-        az.from_dict(
-            prior=_to_arviz_dict({
-                k: v
-                for k, v in prior.items()
-                if k not in {'obs_prev', 'obs_inc'}
-            }),
-            prior_predictive=_to_arviz_dict({
-                k: v
-                for k, v in prior.items()
-                if k in {'obs_prev', 'obs_inc'}
-            }),
-            observed_data={
-                'obs_prev': model_args['prev'],
-                'obs_inc': model_args['inc']
-            },
-        ).to_netcdf('priors')
-        assert False
 
     # initialise SVI
     guide = autoguide(model)
@@ -309,7 +291,30 @@ def surrogate_posterior(
         **model_args
     ):
     # NOTE: Reverse mode has lead to initialisation errors for dmeq
-    kernel = NUTS(model)
+    swap_fn = tfp.mcmc.even_odd_swap_proposal_fn(1)
+    inverse_temperatures = .2 ** jnp.arange(n_chains)
+    def make_kernel_fn(target_log_prob_fn):
+        # return tfp.mcmc.NoUTurnSampler(
+            # target_log_prob_fn=target_log_prob_fn,
+            # step_size=1.
+        # )
+        return tfp.mcmc.HamiltonianMonteCarlo(
+            target_log_prob_fn=target_log_prob_fn,
+            step_size=0.5 / jnp.sqrt(0.5 ** jnp.arange(n_chains)[..., None]),
+            num_leapfrog_steps=5
+        )
+
+
+    kernel = TFPKernel[tfp.mcmc.ReplicaExchangeMC](
+        model,
+        inverse_temperatures=inverse_temperatures,
+        make_kernel_fn=make_kernel_fn,
+        swap_proposal_fn=swap_fn
+    )
+    # kernel = TFPKernel[tfp.mcmc.NoUTurnSampler](
+        # model,
+        # step_size=1.
+    # )
 
     logging.info('Sampling prior')
     prior_key, key = random.split(key, 2)
@@ -328,8 +333,7 @@ def surrogate_posterior(
         kernel,
         num_samples=n_samples,
         num_warmup=n_warmup,
-        num_chains=n_chains,
-        chain_method='vectorized' #pmap leads to segfault for some reason (https://github.com/google/jax/issues/13858)
+        num_chains=n_chains
     )
     mcmc.run(sample_key, **model_args)
 
@@ -352,8 +356,7 @@ def sample_fake_data(key: Array, **model_args):
     sample_key, key = random.split(key, 2)
     truth = Predictive(model, num_samples=1)(
         sample_key,
-        **model_args,
-        truth = intrinsic
+        **model_args
     )
     return truth
 
