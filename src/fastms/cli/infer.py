@@ -20,6 +20,7 @@ from numpyro.infer.autoguide import (
     AutoBNAFNormal,
     AutoLaplaceApproximation
 )
+import numpy as np
 
 import logging
 
@@ -318,6 +319,17 @@ def run(args):
             )
             return site_prev, site_inc
 
+
+        prev_start_time = np.array(sites.prev_start_time, dtype=np.int64)
+        prev_n_time = np.array(sites.prev_end_time - sites.prev_start_time + 1, dtype=np.int64)
+        prev_lar = np.array(sites.prev_lar, dtype=np.int64)
+        prev_n_age = np.array(sites.prev_uar - sites.prev_lar + 1, dtype=np.int64)
+        prev_index = np.array(sites.prev_index, dtype=np.int64)
+        inc_start_time = np.array(sites.inc_start_time, dtype=np.int64)
+        inc_n_time = np.array(sites.inc_end_time - sites.inc_start_time + 1, dtype=np.int64)
+        inc_lar = np.array(sites.inc_lar, dtype=np.int64)
+        inc_n_age = np.array(sites.inc_uar - sites.inc_lar + 1, dtype=np.int64)
+        inc_index = np.array(sites.inc_index, dtype=np.int64)
         def dyn_impl(x_intrinsic, x_eir):
             x = {
                 'intrinsic': tree_map(
@@ -394,23 +406,18 @@ def run(args):
                     )
                 )
 
-            prev_n_time = sites.prev_end_time - sites.prev_start_time + 1
-            prev_n_age = sites.prev_uar - sites.prev_lar + 1
-            inc_n_time = sites.inc_end_time - sites.inc_start_time + 1
-            inc_n_age = sites.inc_uar - sites.inc_lar + 1
-
             n_detect = [
                 _sample_surrogate_stat(
                     'n_detect',
                     'n_detect',
                     p_i,
                     i,
-                    sites.prev_start_time,
+                    prev_start_time,
                     prev_n_time,
-                    sites.prev_lar,
+                    prev_lar,
                     prev_n_age
                 )
-                for i, p_i in enumerate(sites.prev_index)
+                for i, p_i in enumerate(prev_index)
             ]
             n_detect_n = [
                 _sample_surrogate_stat(
@@ -418,12 +425,12 @@ def run(args):
                     'n',
                     p_i,
                     i,
-                    sites.prev_start_time,
+                    prev_start_time,
                     prev_n_time,
-                    sites.prev_lar,
+                    prev_lar,
                     prev_n_age
                 )
-                for i, p_i in enumerate(sites.prev_index)
+                for i, p_i in enumerate(prev_index)
             ]
 
             n_inc_clinical = [
@@ -432,12 +439,12 @@ def run(args):
                     'n_inc_clinical',
                     inc_i,
                     i,
-                    sites.inc_start_time,
+                    inc_start_time,
                     inc_n_time,
-                    sites.inc_lar,
+                    inc_lar,
                     inc_n_age
                 )
-                for i, inc_i in enumerate(sites.inc_index)
+                for i, inc_i in enumerate(inc_index)
             ]
 
             inc_n = [
@@ -446,12 +453,12 @@ def run(args):
                     'n',
                     inc_i,
                     i,
-                    sites.inc_start_time,
+                    inc_start_time,
                     inc_n_time,
-                    sites.inc_lar,
+                    inc_lar,
                     inc_n_age
                 )
-                for i, inc_i in enumerate(sites.inc_index)
+                for i, inc_i in enumerate(inc_index)
             ]
 
             # aggregate over age and time
