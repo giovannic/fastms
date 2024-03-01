@@ -12,6 +12,7 @@ from ..sample.save import load_samples
 from ..density.rnn import load
 from ..density.transformer import load as load_transformer
 from ..sites import make_site_inference_data
+from ..aggregate import aggregate_ibm_outputs
 from mox.seq2seq.rnn import apply_surrogate
 import numpyro
 import numpyro.distributions as dist
@@ -23,26 +24,6 @@ from numpyro.infer.autoguide import (
 import numpy as np
 
 import logging
-
-def _aggregate(xs, ns, age_lower, age_upper, time_lower, time_upper):
-    age_lower = age_lower[:, jnp.newaxis, jnp.newaxis]
-    age_upper = age_upper[:, jnp.newaxis, jnp.newaxis]
-    time_lower = time_lower[:, jnp.newaxis, jnp.newaxis]
-    time_upper = time_upper[:, jnp.newaxis, jnp.newaxis]
-    age_mask = jnp.arange(xs.shape[2])[jnp.newaxis, jnp.newaxis, :]
-    age_mask = (age_mask >= age_lower) & (age_mask <= age_upper)
-    time_mask = jnp.arange(xs.shape[1])[jnp.newaxis, :, jnp.newaxis]
-    time_mask = (time_mask >= time_lower) & (time_mask <= time_upper)
-    mask = age_mask & time_mask
-    xs = jnp.where(mask, xs, 0)
-    ns = jnp.where(mask, ns, 0)
-    xs_over_age = jnp.sum(xs, axis=2) #type: ignore
-    ns_over_age = jnp.sum(ns, axis=2) #type: ignore
-    prev_over_time = jnp.sum(
-        jnp.where(jnp.squeeze(time_mask, 2), xs_over_age / ns_over_age, 0),
-        axis=1
-    )
-    return prev_over_time / jnp.sum(time_mask, axis=(1, 2))
 
 def add_parser(subparsers):
     """add_parser. Adds the inference parser to the main ArgumentParser
@@ -218,7 +199,7 @@ def run(args):
             n_inc_clinical = mu['n_inc_clinical'][sites.inc_index]
             inc_n = mu['n'][sites.inc_index]
 
-            site_prev = _aggregate(
+            site_prev = aggregate_ibm_outputs(
                 n_detect,
                 n_detect_n,
                 sites.prev_lar,
@@ -226,7 +207,7 @@ def run(args):
                 sites.prev_start_time,
                 sites.prev_end_time
             )
-            site_inc = _aggregate(
+            site_inc = aggregate_ibm_outputs(
                 n_inc_clinical,
                 inc_n,
                 sites.inc_lar,
@@ -301,7 +282,7 @@ def run(args):
                 )
             )
 
-            site_prev = _aggregate(
+            site_prev = aggregate_ibm_outputs(
                 n_detect,
                 n_detect_n,
                 sites.prev_lar,
@@ -309,7 +290,7 @@ def run(args):
                 sites.prev_start_time,
                 sites.prev_end_time
             )
-            site_inc = _aggregate(
+            site_inc = aggregate_ibm_outputs(
                 n_inc_clinical,
                 inc_n,
                 sites.inc_lar,
@@ -530,7 +511,7 @@ def run(args):
                 prev=sites.prev,
                 inc_risk_time=sites.inc_risk_time,
                 inc=sites.inc,
-                inc_index=sites.inc_index
+                inc_index=sites.inc_index,
             )
         else:
             i_data = surrogate_posterior(

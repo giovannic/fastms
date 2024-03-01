@@ -15,6 +15,9 @@ from numpyro.infer import (
     Trace_ELBO,
     log_likelihood
 )
+from .sample.prior import _prior_intrinsic_space
+from mox.sampling import sample
+
 import logging
 
 cpu_device = jax.devices('cpu')[0]
@@ -54,11 +57,11 @@ def model(
         # Overdispersion variables
         q = numpyro.sample(
             'q',
-            dist.Exponential(2.)
+            dist.Exponential(.05**-2)
         )
-        theta = numpyro.sample(
-            'theta',
-            dist.Beta(1., 10.)
+        inv_phi = numpyro.sample(
+            'inv_phi',
+            dist.Exponential(.05**-2)
         )
 
     kb = numpyro.sample(
@@ -126,7 +129,7 @@ def model(
     cd = numpyro.sample('cd', dist.Beta(1., 2.))
     cu = numpyro.sample('cu', dist.Beta(1., 5.))
     gamma1 = numpyro.sample('gamma1', dist.LogNormal(0., .25))
-    
+
     x = {
         'kb': kb,
         'ub': ub,
@@ -154,14 +157,13 @@ def model(
     
     prev_stats, inc_stats = impl(x, eir) #type: ignore
 
-    phi = (1 - theta) / theta
     alpha = straight_through(
-        lambda x: jnp.minimum(jnp.maximum(x, MIN_RATE), 1.),
-        (prev_stats) * phi[prev_index]
+        lambda x: jnp.maximum(x, MIN_RATE),
+        (prev_stats) / inv_phi[prev_index]
     )
     beta = straight_through(
-        lambda x: jnp.minimum(jnp.maximum(x, MIN_RATE), 1.),
-        (1. - prev_stats) * phi[prev_index]
+        lambda x: jnp.maximum(x, MIN_RATE),
+        (1. - prev_stats) / inv_phi[prev_index]
     )
 
     numpyro.sample(
@@ -180,7 +182,7 @@ def model(
 
     mean = straight_through(
         lambda x: jnp.maximum(x, MIN_RATE),
-        inc_stats * inc_risk_time
+        inc_stats * 12. * inc_risk_time
     )
 
     numpyro.sample(
@@ -188,7 +190,7 @@ def model(
         dist.Independent(
             dist.GammaPoisson(
                 mean / q[inc_index],
-                q[inc_index], #type: ignore
+                1. / q[inc_index], #type: ignore
                 validate_args=True
             ),
             1
@@ -217,14 +219,24 @@ def surrogate_posterior_svi(
         **prior_args
     )
     prior = _remove_stoch_variables(prior)
-    logging.info('Sampling prior predictive')
-    prior_predictive = Predictive(
-        model,
-        prior,
-        num_samples=n_samples
-    )(prior_key, **prior_args)
-    prior_predictive = _remove_stoch_variables(prior_predictive)
-
+    if False:
+        az.from_dict(
+            prior=_to_arviz_dict({
+                k: v
+                for k, v in prior.items()
+                if k not in {'obs_prev', 'obs_inc'}
+            }),
+            prior_predictive=_to_arviz_dict({
+                k: v
+                for k, v in prior.items()
+                if k in {'obs_prev', 'obs_inc'}
+            }),
+            observed_data={
+                'obs_prev': model_args['prev'],
+                'obs_inc': model_args['inc']
+            },
+        ).to_netcdf('priors')
+        assert False
 
     # initialise SVI
     guide = autoguide(model)
@@ -271,8 +283,16 @@ def surrogate_posterior_svi(
     data = az.from_dict(
         posterior=_to_arviz_dict(posterior_samples),
         posterior_predictive=_to_arviz_dict(post_predictive),
-        prior=_to_arviz_dict(prior),
-        prior_predictive=_to_arviz_dict(prior_predictive),
+        prior=_to_arviz_dict({
+            k: v
+            for k, v in prior.items()
+            if k not in {'obs_prev', 'obs_inc'}
+        }),
+        prior_predictive=_to_arviz_dict({
+            k: v
+            for k, v in prior.items()
+            if k in {'obs_prev', 'obs_inc'}
+        }),
         observed_data={
             'obs_prev': model_args['prev'],
             'obs_inc': model_args['inc']
@@ -332,7 +352,8 @@ def sample_fake_data(key: Array, **model_args):
     sample_key, key = random.split(key, 2)
     truth = Predictive(model, num_samples=1)(
         sample_key,
-        **model_args
+        **model_args,
+        truth = intrinsic
     )
     return truth
 
