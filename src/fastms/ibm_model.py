@@ -51,7 +51,7 @@ def model(
     with numpyro.plate('sites', n_sites):
         eir = numpyro.sample(
             'eir',
-            dist.Uniform(0., 400.)
+            dist.Uniform(0., 1000.)
         )
 
         # Overdispersion variables
@@ -95,8 +95,8 @@ def model(
         )
     )
     uc = numpyro.sample('uc', dist.Gamma(7., 1.))
-    phi0 = numpyro.sample('phi0', dist.Beta(10., 1.))
-    phi1 = numpyro.sample('phi1', dist.Beta(1., 10.))
+    phi0 = numpyro.sample('phi0', dist.Beta(2., 1.))
+    phi1 = numpyro.sample('phi1', dist.Beta(1., 5.))
     ic0 = numpyro.sample(
         'ic0',
         dist.TruncatedDistribution(dist.Normal(25., 10.), low=5., high=50.)
@@ -110,7 +110,7 @@ def model(
     # Detection immunity
     kd = numpyro.sample('kd', dist.LogNormal(0., .25))
     ud = numpyro.sample('ud', dist.Gamma(7., 1.))
-    d1 = numpyro.sample('d1', dist.Beta(1., 10.))
+    d1 = numpyro.sample('d1', dist.Beta(1., 1.))
     id0 = numpyro.sample(
         'id0',
         dist.TruncatedDistribution(dist.Normal(25., 10.), low=5., high=50.)
@@ -182,7 +182,7 @@ def model(
 
     mean = straight_through(
         lambda x: jnp.maximum(x, MIN_RATE),
-        inc_stats * 12. * inc_risk_time
+        inc_stats * 365. * inc_risk_time # NOTE: this is currently inc per day
     )
 
     numpyro.sample(
