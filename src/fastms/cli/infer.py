@@ -180,7 +180,7 @@ def run(args):
                 'init_EIR': x_eir,
                 'seasonality': sites.x_sites['seasonality'],
                 'vector_composition': sites.x_sites['vectors']
-             }
+            }
             x_seq = {
                 'interventions': sites.x_sites['interventions'],
                 'demography': sites.x_sites['demography']
