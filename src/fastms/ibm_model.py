@@ -9,6 +9,7 @@ from numpyro import distributions as dist, optim
 from numpyro.distributions import transforms as trans
 from numpyro.infer import (
     MCMC,
+    NUTS,
     Predictive,
     SVI,
     Trace_ELBO,
@@ -288,33 +289,29 @@ def surrogate_posterior(
         n_samples: int = 100,
         n_warmup: int = 100,
         n_chains: int = 10,
+        kernel_type: str = 'nuts',
         **model_args
     ):
     # NOTE: Reverse mode has lead to initialisation errors for dmeq
     swap_fn = tfp.mcmc.even_odd_swap_proposal_fn(1)
     inverse_temperatures = .2 ** jnp.arange(n_chains)
-    def make_kernel_fn(target_log_prob_fn):
-        # return tfp.mcmc.NoUTurnSampler(
-            # target_log_prob_fn=target_log_prob_fn,
-            # step_size=1.
-        # )
-        return tfp.mcmc.HamiltonianMonteCarlo(
-            target_log_prob_fn=target_log_prob_fn,
-            step_size=0.5 / jnp.sqrt(0.5 ** jnp.arange(n_chains)[..., None]),
-            num_leapfrog_steps=5
+    if kernel_type == 'nuts':
+        kernel = NUTS(model)
+    else:
+        assert kernel_type == 'pt'
+        def make_kernel_fn(target_log_prob_fn):
+            return tfp.mcmc.HamiltonianMonteCarlo(
+                target_log_prob_fn=target_log_prob_fn,
+                step_size=0.5 / jnp.sqrt(0.5 ** jnp.arange(n_chains)[..., None]),
+                num_leapfrog_steps=5
+            )
+
+        kernel = TFPKernel[tfp.mcmc.ReplicaExchangeMC](
+            model,
+            inverse_temperatures=inverse_temperatures,
+            make_kernel_fn=make_kernel_fn,
+            swap_proposal_fn=swap_fn
         )
-
-
-    kernel = TFPKernel[tfp.mcmc.ReplicaExchangeMC](
-        model,
-        inverse_temperatures=inverse_temperatures,
-        make_kernel_fn=make_kernel_fn,
-        swap_proposal_fn=swap_fn
-    )
-    # kernel = TFPKernel[tfp.mcmc.NoUTurnSampler](
-        # model,
-        # step_size=1.
-    # )
 
     logging.info('Sampling prior')
     prior_key, key = random.split(key, 2)
@@ -376,5 +373,5 @@ def _remove_stoch_variables(samples):
     return {
         k: v
         for k, v in samples.items()
-        if not k in {'inc', 'inc_n', 'n_detect', 'n_detect_n' }
+        if not k in {'inc', 'inc_n', 'n_detect', 'n_detect_n'}
     }

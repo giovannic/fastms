@@ -118,7 +118,7 @@ def add_parser(subparsers):
     )
     sample_parser.add_argument(
         '--inf_model',
-        choices=['la', 'normal', 'bnaf', 'mcmc'],
+        choices=['la', 'normal', 'bnaf', 'nuts', 'pt'],
         default='la',
         help='Which inference model to use'
     )
@@ -490,13 +490,12 @@ def run(args):
                 pickle.dump(truth, f)
 
         key_i, key = random.split(key)
-        if args.inf_model != 'mcmc':
+        if args.inf_model in {'la', 'normal', 'bnaf'}:
             if args.inf_model == 'la':
                 autoguide = AutoLaplaceApproximation
             elif args.inf_model == 'normal':
                 autoguide = AutoNormal
             else:
-                assert args.inf_model == 'bnaf'
                 autoguide = partial(AutoBNAFNormal, num_flows=2)
 
             i_data = surrogate_posterior_svi(
@@ -517,6 +516,7 @@ def run(args):
             i_data = surrogate_posterior(
                 key_i,
                 n_chains=args.n_chains,
+                kernel_type=args.inf_model,
                 impl=impl,
                 n_warmup=args.warmup,
                 n_samples=args.n_samples,
