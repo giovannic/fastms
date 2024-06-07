@@ -40,16 +40,16 @@ _prior_intrinsic_space = {
     ),
     'kd': DistStrategy(dist.LogNormal(0., .25)),
     'ud': DistStrategy(dist.Gamma(7., 1.)),
-    'd1': DistStrategy(dist.Beta(1., 10.)),
+    'd1': DistStrategy(dist.Beta(1., 5.)),
     'id0': DistStrategy(
         dist.TruncatedDistribution(dist.Normal(25., 10.), low=5., high=50.)
     ),
     'fd0': DistStrategy(dist.Beta(1., 1.)),
     'gammad': DistStrategy(dist.LogNormal(0., 2.)),
     'ad': DistStrategy(dist.TruncatedDistribution(
-        dist.Normal(50. * 365., 365.),
-        low=20. * 365.,
-        high=80. * 365.
+        dist.Normal(70. * 365., 365.),
+        low=40. * 365.,
+        high=100. * 365.
     )),
     'ru': DistStrategy(dist.LogNormal(0., 1.)),
     'cd': DistStrategy(dist.Beta(1., 2.)),
