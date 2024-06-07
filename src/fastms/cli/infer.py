@@ -6,6 +6,7 @@ from jax.tree_util import tree_map
 from ..ibm_model import (
     surrogate_posterior,
     surrogate_posterior_svi,
+    surrogate_posterior_neutra,
     sample_fake_data
 )
 from ..sample.save import load_samples
@@ -118,7 +119,7 @@ def add_parser(subparsers):
     )
     sample_parser.add_argument(
         '--inf_model',
-        choices=['la', 'normal', 'bnaf', 'nuts', 'pt'],
+        choices=['la', 'normal', 'bnaf', 'nuts', 'pt', 'neutra'],
         default='la',
         help='Which inference model to use'
     )
@@ -171,82 +172,72 @@ def run(args):
         start_year, end_year = 1985, 2018
         sites = make_site_inference_data(args.sites, start_year, end_year)
 
-        def mean_impl(x_intrinsic, x_eir):
+        def impl_output(x_intrinsic, x_eir, site_ind):
+            n_runs = x_eir.shape[0]
             x = {
                 'intrinsic': tree_map(
-                    lambda leaf: jnp.full((sites.n_sites,), leaf),
+                    lambda leaf: jnp.full((n_runs,), leaf),
                     x_intrinsic
                 ),
                 'init_EIR': x_eir,
-                'seasonality': sites.x_sites['seasonality'],
-                'vector_composition': sites.x_sites['vectors']
+                'seasonality': sites.x_sites['seasonality'][site_ind],
+                'vector_composition': sites.x_sites['vectors'][site_ind]
             }
             x_seq = {
-                'interventions': sites.x_sites['interventions'],
-                'demography': sites.x_sites['demography']
+                'interventions': tree_map(
+                    lambda leaf: leaf[site_ind],
+                    sites.x_sites['interventions']
+                ),
+                'demography': sites.x_sites['demography'][site_ind]
             }
             x_in = (x, x_seq)
 
-            mu, _ = apply_surrogate(
+            return apply_surrogate(
                 surrogate,
                 net,
                 params,
                 x_in
             )
 
-            n_detect = mu['n_detect'][sites.prev_index]
-            n_detect_n = mu['n'][sites.prev_index]
-            n_inc_clinical = mu['n_inc_clinical'][sites.inc_index]
-            inc_n = mu['n'][sites.inc_index]
+        def mean_prev_impl(x_intrinsic, x_eir, site_ind, stat_ind):
+            mu, _ = impl_output(x_intrinsic, x_eir, site_ind)
 
-            site_prev = aggregate_ibm_outputs(
+            n_detect = mu['n_detect']
+            n_detect_n = mu['n']
+
+            return aggregate_ibm_outputs(
                 n_detect,
                 n_detect_n,
-                sites.prev_lar,
-                sites.prev_uar,
-                sites.prev_start_time,
-                sites.prev_end_time
+                sites.prev_lar[stat_ind],
+                sites.prev_uar[stat_ind],
+                sites.prev_start_time[stat_ind],
+                sites.prev_end_time[stat_ind]
             )
-            site_inc = aggregate_ibm_outputs(
+
+        def mean_inc_impl(x_intrinsic, x_eir, site_ind, stat_ind):
+            mu, _ = impl_output(x_intrinsic, x_eir, site_ind)
+
+            n_inc_clinical = mu['n_inc_clinical']
+            inc_n = mu['n']
+
+            return aggregate_ibm_outputs(
                 n_inc_clinical,
                 inc_n,
-                sites.inc_lar,
-                sites.inc_uar,
-                sites.inc_start_time,
-                sites.inc_end_time
+                sites.inc_lar[stat_ind],
+                sites.inc_uar[stat_ind],
+                sites.inc_start_time[stat_ind],
+                sites.inc_end_time[stat_ind]
             )
-            return site_prev, site_inc
 
-        def stoch_impl(x_intrinsic, x_eir):
-            x = {
-                'intrinsic': tree_map(
-                    lambda leaf: jnp.full((sites.n_sites,), leaf),
-                    x_intrinsic
-                ),
-                'init_EIR': x_eir,
-                'seasonality': sites.x_sites['seasonality'],
-                'vector_composition': sites.x_sites['vectors']
-            }
-            x_seq = {
-                'interventions': sites.x_sites['interventions'],
-                'demography': sites.x_sites['demography']
-            }
-            x_in = (x, x_seq)
-
-            mu, log_sigma = apply_surrogate(
-                surrogate,
-                net,
-                params,
-                x_in
-            )
+        def stoch_prev_impl(x_intrinsic, x_eir, site_ind, stat_ind):
+            mu, log_sigma = impl_output(x_intrinsic, x_eir, site_ind)
             sigma = tree_map(jnp.exp, log_sigma)
-
             n_detect = numpyro.sample(
                 'n_detect',
                 dist.LeftTruncatedDistribution(
                     dist.Normal(
-                        mu['n_detect'][sites.prev_index],
-                        sigma['n_detect'][sites.prev_index]
+                        mu['n_detect'],
+                        sigma['n_detect']
                     ),
                     0
                 )
@@ -255,18 +246,32 @@ def run(args):
                 'n_detect_n',
                 dist.LeftTruncatedDistribution(
                     dist.Normal(
-                        mu['n'][sites.prev_index],
-                        sigma['n'][sites.prev_index]
+                        mu['n'],
+                        sigma['n']
                     ),
                     0
                 )
             )
+
+            return aggregate_ibm_outputs(
+                n_detect,
+                n_detect_n,
+                sites.prev_lar[stat_ind],
+                sites.prev_uar[stat_ind],
+                sites.prev_start_time[stat_ind],
+                sites.prev_end_time[stat_ind]
+            )
+
+        def stoch_inc_impl(x_intrinsic, x_eir, site_ind, stat_ind):
+            mu, log_sigma = impl_output(x_intrinsic, x_eir, site_ind)
+            sigma = tree_map(jnp.exp, log_sigma)
+
             n_inc_clinical = numpyro.sample(
                 'inc',
                 dist.LeftTruncatedDistribution(
                     dist.Normal(
-                        mu['n_inc_clinical'][sites.inc_index],
-                        sigma['n_inc_clinical'][sites.inc_index]
+                        mu['n_inc_clinical'],
+                        sigma['n_inc_clinical']
                     ),
                     0
                 )
@@ -275,30 +280,21 @@ def run(args):
                 'inc_n',
                 dist.LeftTruncatedDistribution(
                     dist.Normal(
-                        mu['n'][sites.inc_index],
-                        sigma['n'][sites.inc_index]
+                        mu['n'],
+                        sigma['n']
                     ),
                     0
                 )
             )
 
-            site_prev = aggregate_ibm_outputs(
-                n_detect,
-                n_detect_n,
-                sites.prev_lar,
-                sites.prev_uar,
-                sites.prev_start_time,
-                sites.prev_end_time
-            )
-            site_inc = aggregate_ibm_outputs(
+            return aggregate_ibm_outputs(
                 n_inc_clinical,
                 inc_n,
-                sites.inc_lar,
-                sites.inc_uar,
-                sites.inc_start_time,
-                sites.inc_end_time
+                sites.inc_lar[stat_ind],
+                sites.inc_uar[stat_ind],
+                sites.inc_start_time[stat_ind],
+                sites.inc_end_time[stat_ind]
             )
-            return site_prev, site_inc
 
 
         prev_start_time = np.array(sites.prev_start_time, dtype=np.int64)
@@ -311,81 +307,61 @@ def run(args):
         inc_lar = np.array(sites.inc_lar, dtype=np.int64)
         inc_n_age = np.array(sites.inc_uar - sites.inc_lar + 1, dtype=np.int64)
         inc_index = np.array(sites.inc_index, dtype=np.int64)
-        def dyn_impl(x_intrinsic, x_eir):
-            x = {
-                'intrinsic': tree_map(
-                    lambda leaf: jnp.full((sites.n_sites,), leaf),
-                    x_intrinsic
-                ),
-                'init_EIR': x_eir,
-                'seasonality': sites.x_sites['seasonality'],
-                'vector_composition': sites.x_sites['vectors']
-            }
-            x_seq = {
-                'interventions': sites.x_sites['interventions'],
-                'demography': sites.x_sites['demography']
-            }
-            x_in = (x, x_seq)
-
-            mu, log_sigma = apply_surrogate(
-                surrogate,
-                net,
-                params,
-                x_in
+        def _slice_model_output(
+            x,
+            i,
+            p_i,
+            start_time,
+            n_time,
+            start_age,
+            n_age
+            ):
+            return dynamic_slice(
+                x[p_i],
+                (start_time[i], start_age[i]),
+                (n_time[i], n_age[i])
             )
+
+
+        def _sample_surrogate_stat(
+            sample_name,
+            stat,
+            p_i,
+            i,
+            start_time,
+            n_time,
+            start_age,
+            n_age
+            ):
+            mu_stat = _slice_model_output(
+                mu[stat],
+                i,
+                p_i,
+                start_time,
+                n_time,
+                start_age,
+                n_age
+            )
+            sigma_stat = _slice_model_output(
+                sigma[stat],
+                i,
+                p_i,
+                start_time,
+                n_time,
+                start_age,
+                n_age
+            )
+            return numpyro.sample(
+                f'{sample_name}_{i}',
+                dist.LeftTruncatedDistribution(
+                    dist.Normal(mu_stat, sigma_stat), #type: ignore
+                    0
+                )
+            )
+
+        def dyn_prev_impl(x_intrinsic, x_eir, site_ind, stat_ind):
+            mu, log_sigma = impl_output(x_intrinsic, x_eir, site_ind)
             sigma = tree_map(jnp.exp, log_sigma)
-
-            def _slice_model_output(
-                x,
-                i,
-                p_i,
-                start_time,
-                n_time,
-                start_age,
-                n_age
-                ):
-                return dynamic_slice(
-                    x[p_i],
-                    (start_time[i], start_age[i]),
-                    (n_time[i], n_age[i])
-                )
-
-
-            def _sample_surrogate_stat(
-                sample_name,
-                stat,
-                p_i,
-                i,
-                start_time,
-                n_time,
-                start_age,
-                n_age
-                ):
-                mu_stat = _slice_model_output(
-                    mu[stat],
-                    i,
-                    p_i,
-                    start_time,
-                    n_time,
-                    start_age,
-                    n_age
-                )
-                sigma_stat = _slice_model_output(
-                    sigma[stat],
-                    i,
-                    p_i,
-                    start_time,
-                    n_time,
-                    start_age,
-                    n_age
-                )
-                return numpyro.sample(
-                    f'{sample_name}_{i}',
-                    dist.LeftTruncatedDistribution(
-                        dist.Normal(mu_stat, sigma_stat), #type: ignore
-                        0
-                    )
-                )
 
             n_detect = [
                 _sample_surrogate_stat(
@@ -393,12 +369,12 @@ def run(args):
                     'n_detect',
                     p_i,
                     i,
-                    prev_start_time,
-                    prev_n_time,
-                    prev_lar,
-                    prev_n_age
+                    prev_start_time[stat_ind],
+                    prev_n_time[stat_ind],
+                    prev_lar[stat_ind],
+                    prev_n_age[stat_ind]
                 )
-                for i, p_i in enumerate(prev_index)
+                for i, p_i in enumerate(prev_index[stat_ind])
             ]
             n_detect_n = [
                 _sample_surrogate_stat(
@@ -406,13 +382,26 @@ def run(args):
                     'n',
                     p_i,
                     i,
-                    prev_start_time,
-                    prev_n_time,
-                    prev_lar,
-                    prev_n_age
+                    prev_start_time[stat_ind],
+                    prev_n_time[stat_ind],
+                    prev_lar[stat_ind],
+                    prev_n_age[stat_ind]
                 )
-                for i, p_i in enumerate(prev_index)
+                for i, p_i in enumerate(prev_index[stat_ind])
             ]
+
+            # aggregate over age and time
+            return jnp.stack([
+                jnp.mean(
+                    jnp.sum(n_detect_i, axis=1) / #type: ignore
+                    jnp.sum(n_detect_n_i, axis=1) #type: ignore
+                )
+                for n_detect_i, n_detect_n_i in zip(n_detect, n_detect_n)
+            ])
+
+        def dyn_inc_impl(x_intrinsic, x_eir, site_ind, stat_ind):
+            mu, log_sigma = impl_output(x_intrinsic, x_eir, site_ind)
+            sigma = tree_map(jnp.exp, log_sigma)
 
             n_inc_clinical = [
                 _sample_surrogate_stat(
@@ -420,12 +409,12 @@ def run(args):
                     'n_inc_clinical',
                     inc_i,
                     i,
-                    inc_start_time,
-                    inc_n_time,
-                    inc_lar,
-                    inc_n_age
+                    inc_start_time[stat_ind],
+                    inc_n_time[stat_ind],
+                    inc_lar[stat_ind],
+                    inc_n_age[stat_ind]
                 )
-                for i, inc_i in enumerate(inc_index)
+                for i, inc_i in enumerate(inc_index[stat_ind])
             ]
 
             inc_n = [
@@ -434,24 +423,16 @@ def run(args):
                     'n',
                     inc_i,
                     i,
-                    inc_start_time,
-                    inc_n_time,
-                    inc_lar,
-                    inc_n_age
+                    inc_start_time[stat_ind],
+                    inc_n_time[stat_ind],
+                    inc_lar[stat_ind],
+                    inc_n_age[stat_ind]
                 )
-                for i, inc_i in enumerate(inc_index)
+                for i, inc_i in enumerate(inc_index[stat_ind])
             ]
 
             # aggregate over age and time
-            site_prev = jnp.stack([
-                jnp.mean(
-                    jnp.sum(n_detect_i, axis=1) / #type: ignore
-                    jnp.sum(n_detect_n_i, axis=1) #type: ignore
-                )
-                for n_detect_i, n_detect_n_i in zip(n_detect, n_detect_n)
-            ])
-
-            site_inc = jnp.stack([
+            return jnp.stack([
                 jnp.mean(
                     jnp.sum(n_inc_clinical_i, axis=1) / #type: ignore
                     jnp.sum(inc_n_i, axis=1) #type: ignore
@@ -459,30 +440,33 @@ def run(args):
                 for n_inc_clinical_i, inc_n_i in zip(n_inc_clinical, inc_n)
             ])
 
-            return site_prev, site_inc
-
         if args.stoch == 'mask':
-            impl = stoch_impl
-        if args.stoch == 'slice':
-            impl = dyn_impl
+            prev_impl = stoch_prev_impl
+            inc_impl = stoch_inc_impl
+        elif args.stoch == 'slice':
+            prev_impl = dyn_prev_impl
+            inc_impl = dyn_inc_impl
         else:
             assert args.stoch == 'mean'
-            impl = mean_impl
+            prev_impl = mean_prev_impl
+            inc_impl = mean_inc_impl
 
         # Make fake data for validation
         key = random.PRNGKey(args.seed)
+
         if args.fake:
             truth = sample_fake_data(
                 key,
-                impl=impl,
+                prev_impl=prev_impl,
+                inc_impl=inc_impl,
                 n_sites=sites.n_sites,
                 n_prev=sites.n_prev,
                 prev_index=sites.prev_index,
                 inc_risk_time=sites.inc_risk_time,
                 inc_index=sites.inc_index
             )
-            sites.prev = truth['obs_prev']
-            sites.inc = truth['obs_inc']
+            sites.prev = truth['obs_prev'][0]
+            sites.inc = truth['obs_inc'][0]
 
             logging.info('Saving fake data')
             truth_path = args.output + '_truth.pkl'
@@ -503,7 +487,8 @@ def run(args):
                 autoguide=autoguide,
                 n_train_samples=args.n_train_svi,
                 n_samples=args.n_samples,
-                impl=impl,
+                prev_impl=prev_impl,
+                inc_impl=inc_impl,
                 n_sites=sites.n_sites,
                 n_prev=sites.n_prev,
                 prev_index=sites.prev_index,
@@ -511,6 +496,24 @@ def run(args):
                 inc_risk_time=sites.inc_risk_time,
                 inc=sites.inc,
                 inc_index=sites.inc_index,
+                prev_subsample=10,
+                inc_subsample=10
+            )
+        elif args.inf_model == 'neutra':
+            i_data = surrogate_posterior_neutra(
+                key_i,
+                impl=impl,
+                n_train_samples=args.n_train_svi,
+                n_warmup=args.warmup,
+                n_samples=args.n_samples,
+                n_chains=args.n_chains,
+                n_sites=sites.n_sites,
+                n_prev=sites.n_prev,
+                prev_index=sites.prev_index,
+                prev=sites.prev,
+                inc_risk_time=sites.inc_risk_time,
+                inc=sites.inc,
+                inc_index=sites.inc_index
             )
         else:
             i_data = surrogate_posterior(

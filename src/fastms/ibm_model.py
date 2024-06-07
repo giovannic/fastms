@@ -15,9 +15,15 @@ from numpyro.infer import (
     Trace_ELBO,
     log_likelihood
 )
+from numpyro.infer.reparam import NeuTraReparam
+from numpyro.infer.initialization import init_to_median
 from numpyro.contrib.tfp.mcmc import TFPKernel
 import tensorflow_probability.substrates.jax as tfp
+from numpyro.handlers import seed
+from numpyro.infer.autoguide import AutoBNAFNormal
 import arviz as az
+from functools import partial
+from jax.tree_util import tree_map
 
 import logging
 
@@ -31,9 +37,12 @@ def model(
     prev_index: Array,
     inc_risk_time: Array,
     inc_index: Array,
-    impl: Callable[[Dict, Array],Tuple[Array, Array]],
+    prev_impl: Callable[[Dict, Array],Array],
+    inc_impl: Callable[[Dict, Array],Array],
     prev: Optional[Array]=None,
     inc: Optional[Array]=None,
+    prev_subsample: Optional[int]=None,
+    inc_subsample: Optional[int]=None
     ):
     """
     model. A numpyro model for fitting IBM parameters to prevalence/incidence
@@ -48,8 +57,14 @@ def model(
     :param prev: Array an array of observed prevalence statistics
     :param inc: Array an array of observed incidence statistics
     """
-    # Pre-erythrocytic immunity
+
+    #eir = numpyro.sample(
+    #    'eir',
+    #    dist.Uniform(jnp.full(n_sites, 0.), jnp.full(n_sites, 1000.))
+    #)
+
     with numpyro.plate('sites', n_sites):
+        # Bug in neutra https://github.com/pyro-ppl/numpyro/issues/1694
         eir = numpyro.sample(
             'eir',
             dist.Uniform(0., 1000.)
@@ -65,6 +80,7 @@ def model(
             dist.Exponential(.05**-2)
         )
 
+    # Pre-erythrocytic immunity
     kb = numpyro.sample(
         'kb',
         dist.TransformedDistribution(
@@ -155,16 +171,29 @@ def model(
         'cu': cu,
         'gamma1': gamma1
     }
-    
-    prev_stats, inc_stats = impl(x, eir) #type: ignore
 
+    with numpyro.plate(
+        'prev_data',
+        len(prev_index),
+        subsample_size=prev_subsample) as ind:
+
+        prev_ind = ind
+        prev_sites = prev_index[ind]
+        obs_prev = prev if prev is None else prev[ind]
+
+    prev_stats = prev_impl( #type: ignore
+        x,
+        eir[prev_sites],
+        prev_sites,
+        prev_ind
+    )
     alpha = straight_through(
         lambda x: jnp.maximum(x, MIN_RATE),
-        (prev_stats) / inv_phi[prev_index]
+        (prev_stats) / inv_phi[prev_sites]
     )
     beta = straight_through(
         lambda x: jnp.maximum(x, MIN_RATE),
-        (1. - prev_stats) / inv_phi[prev_index]
+        (1. - prev_stats) / inv_phi[prev_sites]
     )
 
     numpyro.sample(
@@ -173,30 +202,46 @@ def model(
             dist.BetaBinomial(
                 concentration1=alpha,
                 concentration0=beta,
-                total_count=n_prev, #type: ignore
+                total_count=n_prev[ind], #type: ignore
                 validate_args=True
             ),
             1
         ),
-        obs=prev
+        obs=obs_prev
+    )
+
+    with numpyro.plate(
+        'inc_data',
+        len(inc_index),
+        subsample_size=inc_subsample) as ind:
+
+        inc_ind = ind
+        inc_sites = inc_index[ind]
+        obs_inc = inc if inc is None else inc[ind]
+
+    inc_stats = inc_impl( #type: ignore
+        x,
+        eir[inc_sites],
+        inc_sites,
+        inc_ind
     )
 
     mean = straight_through(
         lambda x: jnp.maximum(x, MIN_RATE),
-        inc_stats * 365. * inc_risk_time # NOTE: this is currently inc per day
+        inc_stats * 365. * inc_risk_time[inc_ind] # NOTE: this is currently inc per day
     )
 
     numpyro.sample(
         'obs_inc',
         dist.Independent(
             dist.GammaPoisson(
-                mean / q[inc_index],
-                1. / q[inc_index], #type: ignore
+                mean / q[inc_sites],
+                1. / q[inc_sites], #type: ignore
                 validate_args=True
             ),
             1
         ),
-        obs=inc
+        obs=obs_inc
     )
 
 def surrogate_posterior_svi(
@@ -211,7 +256,12 @@ def surrogate_posterior_svi(
     prior_key, key = random.split(key, 2)
     prior_args = {
         k: v for k, v in model_args.items()
-        if k not in ['prev', 'inc']
+        if k not in {
+            'prev',
+            'inc',
+            'prev_subsample',
+            'inc_subsample'
+        }
     }
 
     logging.info('Sampling prior')
@@ -228,14 +278,14 @@ def surrogate_posterior_svi(
         model,
         guide,
         optim.ClippedAdam(1e-4),
-        loss=Trace_ELBO(num_particles=8),
+        loss=Trace_ELBO(num_particles=32),
         **model_args
     )
 
     # train SVI
     logging.info('Training SVI')
     sample_key, key = random.split(key, 2)
-    svi_result = svi.run(sample_key, n_train_samples, stable_update=True)
+    svi_result = svi.run(sample_key, n_train_samples)
     svi_params = svi_result.params
 
     # sample posterior
@@ -246,10 +296,15 @@ def surrogate_posterior_svi(
         params=svi_params,
         num_samples=n_samples
     )(post_key)
+    seeded_model = seed(model, post_key)
     log_likelihoods = log_likelihood(
-        model,
+        seeded_model,
         posterior_samples,
-        **model_args
+        **{
+            k: v
+            for k, v in model_args.items()
+            if k not in {'prev_subsample', 'inc_subsample'}
+        }
     )
     posterior_samples = _remove_stoch_variables(posterior_samples)
 
@@ -284,6 +339,89 @@ def surrogate_posterior_svi(
     )
     return data
 
+def surrogate_posterior_neutra(
+        key: Array,
+        n_train_samples: int = 10000,
+        n_samples: int = 100,
+        n_warmup: int = 100,
+        n_chains: int = 10,
+        **model_args
+    ):
+    logging.info('Sampling prior')
+    prior_key, key = random.split(key, 2)
+    prior_args = {
+        k: v for k, v in model_args.items()
+        if k not in ['prev', 'inc']
+    }
+    prior = Predictive(model, num_samples=n_samples)(
+        prior_key,
+        **prior_args
+    )
+
+    logging.info('Training SVI')
+    bound_model = partial(model, **model_args)
+    guide = AutoBNAFNormal(bound_model, num_flows=2)
+    svi = SVI(
+        bound_model,
+        guide,
+        optim.ClippedAdam(1e-4),
+        loss=Trace_ELBO(num_particles=128),
+    )
+    svi_key, key = random.split(key, 2)
+    svi_result = svi.run(svi_key, n_train_samples, stable_update=True)
+    svi_params = svi_result.params
+
+    neutra = NeuTraReparam(guide, svi_params)
+    neutra_model = neutra.reparam(bound_model)
+
+    kernel = NUTS(neutra_model)
+    logging.info('Sampling posterior')
+    mcmc = MCMC(
+        kernel,
+        num_samples=n_samples,
+        num_warmup=n_warmup,
+        num_chains=n_chains,
+        chain_method='vectorized'
+    )
+    mcmc_key, key = random.split(key, 2)
+    mcmc.run(mcmc_key)
+
+    posterior_samples = mcmc.get_samples()
+    log_likelihoods = log_likelihood(
+        model,
+        posterior_samples,
+        **model_args
+    )
+
+    logging.info('Sampling posterior predictive')
+    post_key, key = random.split(key, 2)
+    posterior_predictive = Predictive(model, posterior_samples)(
+        post_key,
+        **prior_args
+    )
+
+    logging.info('Compiling results to save')
+    data = az.from_dict(
+        posterior=_to_arviz_dict(posterior_samples),
+        posterior_predictive=_to_arviz_dict(posterior_predictive),
+        prior=_to_arviz_dict({
+            k: v
+            for k, v in prior.items()
+            if k not in {'obs_prev', 'obs_inc'}
+        }),
+        prior_predictive=_to_arviz_dict({
+            k: v
+            for k, v in prior.items()
+            if k in {'obs_prev', 'obs_inc'}
+        }),
+        observed_data={
+            'obs_prev': model_args['prev'],
+            'obs_inc': model_args['inc']
+        },
+        log_likelihood=_to_arviz_dict(log_likelihoods)
+    )
+    return data
+
 def surrogate_posterior(
         key: Array,
         n_samples: int = 100,
@@ -293,17 +431,29 @@ def surrogate_posterior(
         **model_args
     ):
     # NOTE: Reverse mode has lead to initialisation errors for dmeq
-    swap_fn = tfp.mcmc.even_odd_swap_proposal_fn(1)
-    inverse_temperatures = .2 ** jnp.arange(n_chains)
     if kernel_type == 'nuts':
-        kernel = NUTS(model)
+        kernel = NUTS(
+            model,
+            dense_mass=True,
+            #dense_mass=[
+            #    ('kb', 'ub', 'b0', 'ib0'),
+            #    ('kc', 'uc', 'ic0', 'phi0', 'phi1', 'pcm', 'rm'),
+            #    ('kd', 'ud', 'd1', 'id0', 'fd0', 'gammad', 'ad', 'ru'),
+            #    ('cd', 'cu', 'gamma1'),
+            #],
+            target_accept_prob=.90,
+            max_tree_depth=15,
+            init_strategy=init_to_median
+        )
     else:
         assert kernel_type == 'pt'
+        swap_fn = tfp.mcmc.even_odd_swap_proposal_fn(1)
+        inverse_temperatures = .2 ** jnp.arange(n_chains)
         def make_kernel_fn(target_log_prob_fn):
             return tfp.mcmc.HamiltonianMonteCarlo(
                 target_log_prob_fn=target_log_prob_fn,
-                step_size=0.5 / jnp.sqrt(0.5 ** jnp.arange(n_chains)[..., None]),
-                num_leapfrog_steps=5
+                step_size=1e-3 / jnp.sqrt(0.5 ** jnp.arange(n_chains)[..., None]),
+                num_leapfrog_steps=100
             )
 
         kernel = TFPKernel[tfp.mcmc.ReplicaExchangeMC](
@@ -330,7 +480,8 @@ def surrogate_posterior(
         kernel,
         num_samples=n_samples,
         num_warmup=n_warmup,
-        num_chains=n_chains
+        num_chains=n_chains,
+        chain_method='vectorized' if kernel_type == 'nuts' else 'parallel'
     )
     mcmc.run(sample_key, **model_args)
 
