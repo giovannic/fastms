@@ -13,7 +13,7 @@ from ..sample.save import load_samples
 from ..density.rnn import load
 from ..density.transformer import load as load_transformer
 from ..sites import make_site_inference_data
-from ..aggregate import aggregate_ibm_outputs
+from ..aggregate import aggregate_prev, aggregate_inc
 from mox.seq2seq.rnn import apply_surrogate
 import numpyro
 import numpyro.distributions as dist
@@ -205,7 +205,7 @@ def run(args):
             n_detect = mu['n_detect']
             n_detect_n = mu['n']
 
-            return aggregate_ibm_outputs(
+            return aggregate_prev(
                 n_detect,
                 n_detect_n,
                 sites.prev_lar[stat_ind],
@@ -220,7 +220,7 @@ def run(args):
             n_inc_clinical = mu['n_inc_clinical']
             inc_n = mu['n']
 
-            return aggregate_ibm_outputs(
+            return aggregate_inc(
                 n_inc_clinical,
                 inc_n,
                 sites.inc_lar[stat_ind],
@@ -253,7 +253,7 @@ def run(args):
                 )
             )
 
-            return aggregate_ibm_outputs(
+            return aggregate_prev(
                 n_detect,
                 n_detect_n,
                 sites.prev_lar[stat_ind],
@@ -287,7 +287,7 @@ def run(args):
                 )
             )
 
-            return aggregate_ibm_outputs(
+            return aggregate_inc(
                 n_inc_clinical,
                 inc_n,
                 sites.inc_lar[stat_ind],
@@ -358,94 +358,9 @@ def run(args):
                     0
                 )
             )
-
-        def dyn_prev_impl(x_intrinsic, x_eir, site_ind, stat_ind):
-            mu, log_sigma = impl_output(x_intrinsic, x_eir, site_ind)
-            sigma = tree_map(jnp.exp, log_sigma)
-
-            n_detect = [
-                _sample_surrogate_stat(
-                    'n_detect',
-                    'n_detect',
-                    p_i,
-                    i,
-                    prev_start_time[stat_ind],
-                    prev_n_time[stat_ind],
-                    prev_lar[stat_ind],
-                    prev_n_age[stat_ind]
-                )
-                for i, p_i in enumerate(prev_index[stat_ind])
-            ]
-            n_detect_n = [
-                _sample_surrogate_stat(
-                    'n_detect_n',
-                    'n',
-                    p_i,
-                    i,
-                    prev_start_time[stat_ind],
-                    prev_n_time[stat_ind],
-                    prev_lar[stat_ind],
-                    prev_n_age[stat_ind]
-                )
-                for i, p_i in enumerate(prev_index[stat_ind])
-            ]
-
-            # aggregate over age and time
-            return jnp.stack([
-                jnp.mean(
-                    jnp.sum(n_detect_i, axis=1) / #type: ignore
-                    jnp.sum(n_detect_n_i, axis=1) #type: ignore
-                )
-                for n_detect_i, n_detect_n_i in zip(n_detect, n_detect_n)
-            ])
-
-        def dyn_inc_impl(x_intrinsic, x_eir, site_ind, stat_ind):
-            mu, log_sigma = impl_output(x_intrinsic, x_eir, site_ind)
-            sigma = tree_map(jnp.exp, log_sigma)
-
-            n_inc_clinical = [
-                _sample_surrogate_stat(
-                    'inc',
-                    'n_inc_clinical',
-                    inc_i,
-                    i,
-                    inc_start_time[stat_ind],
-                    inc_n_time[stat_ind],
-                    inc_lar[stat_ind],
-                    inc_n_age[stat_ind]
-                )
-                for i, inc_i in enumerate(inc_index[stat_ind])
-            ]
-
-            inc_n = [
-                _sample_surrogate_stat(
-                    'inc_n',
-                    'n',
-                    inc_i,
-                    i,
-                    inc_start_time[stat_ind],
-                    inc_n_time[stat_ind],
-                    inc_lar[stat_ind],
-                    inc_n_age[stat_ind]
-                )
-                for i, inc_i in enumerate(inc_index[stat_ind])
-            ]
-
-            # aggregate over age and time
-            return jnp.stack([
-                jnp.mean(
-                    jnp.sum(n_inc_clinical_i, axis=1) / #type: ignore
-                    jnp.sum(inc_n_i, axis=1) #type: ignore
-                )
-                for n_inc_clinical_i, inc_n_i in zip(n_inc_clinical, inc_n)
-            ])
-
         if args.stoch == 'mask':
             prev_impl = stoch_prev_impl
             inc_impl = stoch_inc_impl
-        elif args.stoch == 'slice':
-            prev_impl = dyn_prev_impl
-            inc_impl = dyn_inc_impl
         else:
             assert args.stoch == 'mean'
             prev_impl = mean_prev_impl
@@ -487,13 +402,14 @@ def run(args):
                 autoguide=autoguide,
                 n_train_samples=args.n_train_svi,
                 n_samples=args.n_samples,
+                block_stochastic=(args.inf_model == 'bnaf'),
                 prev_impl=prev_impl,
                 inc_impl=inc_impl,
                 n_sites=sites.n_sites,
                 n_prev=sites.n_prev,
                 prev_index=sites.prev_index,
                 prev=sites.prev,
-                inc_risk_time=sites.inc_risk_time,
+                inc_pop=sites.inc_pop,
                 inc=sites.inc,
                 inc_index=sites.inc_index,
                 prev_subsample=10,

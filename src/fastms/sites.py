@@ -18,8 +18,8 @@ class SiteData:
     n_prev: Array
     prev: Array
     inc_index: Array
-    inc_risk_time: Array
     inc: Array
+    inc_pop: Array
     x_sites: Array
     site_df_dict: dict
     site_index: pd.DataFrame
@@ -40,8 +40,8 @@ def make_site_inference_data(sites_path, start_year, end_year) -> SiteData:
     # Loaed prevalence and incidence data
     prev_path = sites_path + '/prev.csv'
     inc_path = sites_path + '/inc.csv'
-    prev = pd.read_csv(prev_path)
-    inc = pd.read_csv(inc_path)
+    prev = pd.read_csv(prev_path, encoding='iso-8859-1')
+    inc = pd.read_csv(inc_path, encoding='iso-8859-1')
 
     # Load site data
     sites = import_sites(sites_path)
@@ -126,8 +126,8 @@ def make_site_inference_data(sites_path, start_year, end_year) -> SiteData:
         n_prev=jnp.array(prev.N.values),
         prev=jnp.array(prev.N_POS.values),
         inc_index=inc_index,
-        inc_risk_time=jnp.array(inc.PYO.values),
         inc=jnp.array(inc.d.values, dtype=jnp.int64),
+        inc_pop=jnp.array(inc.POP.values),
         x_sites=x_sites,
         site_df_dict=sites,
         site_index=site_samples,

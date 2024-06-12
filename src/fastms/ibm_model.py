@@ -15,12 +15,16 @@ from numpyro.infer import (
     Trace_ELBO,
     log_likelihood
 )
+from numpyro.infer.autoguide import (
+    AutoDelta,
+    AutoBNAFNormal,
+    AutoGuideList
+)
 from numpyro.infer.reparam import NeuTraReparam
 from numpyro.infer.initialization import init_to_median
 from numpyro.contrib.tfp.mcmc import TFPKernel
 import tensorflow_probability.substrates.jax as tfp
-from numpyro.handlers import seed
-from numpyro.infer.autoguide import AutoBNAFNormal
+from numpyro.handlers import seed, block
 import arviz as az
 from functools import partial
 from jax.tree_util import tree_map
@@ -35,7 +39,7 @@ def model(
     n_sites: int,
     n_prev: Array,
     prev_index: Array,
-    inc_risk_time: Array,
+    inc_pop: Array,
     inc_index: Array,
     prev_impl: Callable[[Dict, Array],Array],
     inc_impl: Callable[[Dict, Array],Array],
@@ -81,17 +85,7 @@ def model(
         )
 
     # Pre-erythrocytic immunity
-    kb = numpyro.sample(
-        'kb',
-        dist.TransformedDistribution(
-            dist.LogNormal(0., .25),
-            trans.AffineTransform(
-                1.,
-                1.,
-                domain=dist.constraints.positive
-            )
-        )
-    )
+    kb = numpyro.sample('kb', dist.LogNormal(0., .25))
     ub = numpyro.sample('ub', dist.Gamma(7., 1.))
     b0 = numpyro.sample('b0', dist.Beta(1., 1.))
     ib0 = numpyro.sample(
@@ -100,20 +94,10 @@ def model(
     )
     
     # Clinical immunity
-    kc = numpyro.sample(
-        'kc',
-        dist.TransformedDistribution(
-            dist.LogNormal(0., .25),
-            trans.AffineTransform(
-                1.,
-                1.,
-                domain=dist.constraints.positive
-            )
-        )
-    )
+    kc = numpyro.sample('kc', dist.LogNormal(0., .25))
     uc = numpyro.sample('uc', dist.Gamma(7., 1.))
     phi0 = numpyro.sample('phi0', dist.Beta(2., 1.))
-    phi1 = numpyro.sample('phi1', dist.Beta(1., 5.))
+    phi1 = numpyro.sample('phi1', dist.Beta(1., 2.))
     ic0 = numpyro.sample(
         'ic0',
         dist.TruncatedDistribution(dist.Normal(25., 10.), low=5., high=50.)
@@ -127,7 +111,7 @@ def model(
     # Detection immunity
     kd = numpyro.sample('kd', dist.LogNormal(0., .25))
     ud = numpyro.sample('ud', dist.Gamma(7., 1.))
-    d1 = numpyro.sample('d1', dist.Beta(1., 1.))
+    d1 = numpyro.sample('d1', dist.Beta(1., 5.))
     id0 = numpyro.sample(
         'id0',
         dist.TruncatedDistribution(dist.Normal(25., 10.), low=5., high=50.)
@@ -135,9 +119,9 @@ def model(
     fd0 = numpyro.sample('fd0', dist.Beta(1., 1.))
     gammad = numpyro.sample('gammad', dist.LogNormal(0., 2.))
     ad = numpyro.sample('ad', dist.TruncatedDistribution(
-        dist.Normal(50. * 365., 365.),
-        low=20. * 365.,
-        high=80. * 365.
+        dist.Normal(70. * 365., 365.),
+        low=40. * 365.,
+        high=100. * 365.
     ))
     
     ru = numpyro.sample('ru', dist.LogNormal(0., 1.))
@@ -228,7 +212,7 @@ def model(
 
     mean = straight_through(
         lambda x: jnp.maximum(x, MIN_RATE),
-        inc_stats * 365. * inc_risk_time[inc_ind] # NOTE: this is currently inc per day
+        inc_stats * inc_pop[inc_ind]
     )
 
     numpyro.sample(
@@ -249,6 +233,7 @@ def surrogate_posterior_svi(
         autoguide,
         n_train_samples: int = 10000,
         n_samples: int = 100,
+        block_stochastic: bool = False,
         **model_args
     ):
     
@@ -264,15 +249,60 @@ def surrogate_posterior_svi(
         }
     }
 
+
     logging.info('Sampling prior')
     prior = Predictive(model, num_samples=n_samples)(
         prior_key,
         **prior_args
     )
     prior = _remove_stoch_variables(prior)
+    az.from_dict(
+        prior=_to_arviz_dict({
+            k: v
+            for k, v in prior.items()
+            if k not in {'obs_prev', 'obs_inc'}
+        }),
+        prior_predictive=_to_arviz_dict({
+            k: v
+            for k, v in prior.items()
+            if k in {'obs_prev', 'obs_inc'}
+        }),
+        observed_data={
+            'obs_prev': model_args['prev'],
+            'obs_inc': model_args['inc']
+        },
+    ).to_netcdf('prior_test.netcdf')
+    raise Exception('stop')
 
     # initialise SVI
-    guide = autoguide(model)
+    if block_stochastic:
+        stoch_sites = {
+            'n_detect',
+            'n_detect_n',
+            'inc',
+            'inc_n'
+        }
+
+        guide = AutoGuideList(model)
+        guide.append(
+            AutoDelta(
+                block(
+                    seed(model, key),
+                    expose=stoch_sites
+                ),
+                prefix='auto_stoch_' # stop conflicts
+            )
+        )
+        guide.append(
+            autoguide(
+                block(
+                    seed(model, key),
+                    hide=stoch_sites
+                )
+            )
+        )
+    else:
+        guide = autoguide(model)
 
     svi = SVI(
         model,
@@ -296,15 +326,12 @@ def surrogate_posterior_svi(
         params=svi_params,
         num_samples=n_samples
     )(post_key)
+    #TODO, run predictives first to get likelihood without subsampling
     seeded_model = seed(model, post_key)
-    log_likelihoods = log_likelihood(
+    log_likelihoods = log_likelihood( 
         seeded_model,
         posterior_samples,
-        **{
-            k: v
-            for k, v in model_args.items()
-            if k not in {'prev_subsample', 'inc_subsample'}
-        }
+        **model_args
     )
     posterior_samples = _remove_stoch_variables(posterior_samples)
 

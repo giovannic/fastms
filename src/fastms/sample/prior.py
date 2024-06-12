@@ -7,33 +7,19 @@ from .sites import import_sites, pad_sites, sample_sites, sites_to_tree
 from .ibm import run_ibm
 
 _prior_intrinsic_space = {
-    'kb': DistStrategy(dist.TransformedDistribution(
-        dist.LogNormal(0., .25),
-        trans.AffineTransform(
-            1.,
-            1.,
-            domain=dist.constraints.positive
-        )
-    )),
+    'kb': DistStrategy(dist.LogNormal(0., .25)),
     'ub': DistStrategy(dist.Gamma(7., 1.)),
     'b0': DistStrategy(dist.Beta(1., 1.)),
     'ib0': DistStrategy(
         dist.TruncatedDistribution(dist.Normal(50., 20.), low=25., high=75.)
     ),
-    'kc': DistStrategy(dist.TransformedDistribution(
-        dist.LogNormal(0., .25),
-        trans.AffineTransform(
-            1.,
-            1.,
-            domain=dist.constraints.positive
-        )
-    )),
+    'kc': DistStrategy(dist.LogNormal(0., .25)),
     'uc': DistStrategy(dist.Gamma(7., 1.)),
     'ic0': DistStrategy(
         dist.TruncatedDistribution(dist.Normal(25., 10.), low=5., high=50.)
     ),
-    'phi0': DistStrategy(dist.Beta(10., 1.)),
-    'phi1': DistStrategy(dist.Beta(1., 10.)),
+    'phi0': DistStrategy(dist.Beta(2., 1.)),
+    'phi1': DistStrategy(dist.Beta(1., 2.)),
     'pcm': DistStrategy(dist.Beta(1., 1.)),
     'rm': DistStrategy(
         dist.TruncatedDistribution(dist.Normal(50., 20.), low=5., high=100.)
@@ -67,7 +53,7 @@ def sample_prior(
     end_year: int = 2018,
     population: int = 100000
     ) -> PyTree:
-    EIR = DistStrategy(dist.Uniform(0., 400.))
+    EIR = DistStrategy(dist.Uniform(0., 1000.))
     X_intrinsic, init_EIR = sample(
         [_prior_intrinsic_space, EIR], # type: ignore
         n,
