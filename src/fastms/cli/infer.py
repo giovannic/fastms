@@ -141,6 +141,24 @@ def add_parser(subparsers):
         default=10000,
         help='Number of training samples for SVI'
     )
+    sample_parser.add_argument(
+        '--alpha_rate',
+        type=float,
+        default=0,
+        help='Rate for annealing'
+    )
+    sample_parser.add_argument(
+        '--alpha_round',
+        type=int,
+        default=0,
+        help='Round for annealing calculations'
+    )
+    sample_parser.add_argument(
+        '--alpha_max_round',
+        type=int,
+        default=10,
+        help='Max round for annealing calculations'
+    )
 
 def run(args):
     if args.model == 'ibm':
@@ -397,6 +415,9 @@ def run(args):
             else:
                 autoguide = partial(AutoBNAFNormal, num_flows=2)
 
+            alpha = args.alpha_rate ** (
+                args.alpha_max_round - args.alpha_round - 1
+            )
             i_data = surrogate_posterior_svi(
                 key_i,
                 autoguide=autoguide,
@@ -413,7 +434,8 @@ def run(args):
                 inc=sites.inc,
                 inc_index=sites.inc_index,
                 prev_subsample=10,
-                inc_subsample=10
+                inc_subsample=10,
+                alpha=alpha
             )
         elif args.inf_model == 'neutra':
             i_data = surrogate_posterior_neutra(

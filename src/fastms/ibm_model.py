@@ -1,12 +1,11 @@
 from jaxtyping import Array
-from typing import Callable, Optional, Dict, Tuple
+from typing import Callable, Optional, Dict
 import arviz as az
 import jax
 from jax import numpy as jnp, lax
 from jax import random
 import numpyro
 from numpyro import distributions as dist, optim
-from numpyro.distributions import transforms as trans
 from numpyro.infer import (
     MCMC,
     NUTS,
@@ -27,7 +26,6 @@ import tensorflow_probability.substrates.jax as tfp
 from numpyro.handlers import seed, block
 import arviz as az
 from functools import partial
-from jax.tree_util import tree_map
 
 import logging
 
@@ -46,7 +44,8 @@ def model(
     prev: Optional[Array]=None,
     inc: Optional[Array]=None,
     prev_subsample: Optional[int]=None,
-    inc_subsample: Optional[int]=None
+    inc_subsample: Optional[int]=None,
+    alpha=1.
     ):
     """
     model. A numpyro model for fitting IBM parameters to prevalence/incidence
@@ -180,19 +179,23 @@ def model(
         (1. - prev_stats) / inv_phi[prev_sites]
     )
 
-    numpyro.sample(
-        'obs_prev',
-        dist.Independent(
-            dist.BetaBinomial(
-                concentration1=alpha,
-                concentration0=beta,
-                total_count=n_prev[ind], #type: ignore
-                validate_args=True
-            ),
-            1
-        ),
-        obs=obs_prev
+    prev_scale = 1. if prev_subsample is None else (
+        len(prev_sites)/prev_subsample
     )
+    with numpyro.handlers.scale(scale=alpha * prev_scale):
+        numpyro.sample(
+            'obs_prev',
+            dist.Independent(
+                dist.BetaBinomial(
+                    concentration1=alpha,
+                    concentration0=beta,
+                    total_count=n_prev[ind], #type: ignore
+                    validate_args=True
+                ),
+                1
+            ),
+            obs=obs_prev
+        )
 
     with numpyro.plate(
         'inc_data',
@@ -215,18 +218,23 @@ def model(
         inc_stats * inc_pop[inc_ind]
     )
 
-    numpyro.sample(
-        'obs_inc',
-        dist.Independent(
-            dist.GammaPoisson(
-                mean / q[inc_sites],
-                1. / q[inc_sites], #type: ignore
-                validate_args=True
-            ),
-            1
-        ),
-        obs=obs_inc
+    inc_scale = 1. if inc_subsample is None else (
+        len(inc_sites)/inc_subsample
     )
+
+    with numpyro.handlers.scale(scale=alpha * inc_scale):
+        numpyro.sample(
+            'obs_inc',
+            dist.Independent(
+                dist.GammaPoisson(
+                    mean / q[inc_sites],
+                    1. / q[inc_sites], #type: ignore
+                    validate_args=True
+                ),
+                1
+            ),
+            obs=obs_inc
+        )
 
 def surrogate_posterior_svi(
         key: Array,
