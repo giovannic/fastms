@@ -256,23 +256,6 @@ def surrogate_posterior_svi(
         **prior_args
     )
     prior = _remove_stoch_variables(prior)
-    az.from_dict(
-        prior=_to_arviz_dict({
-            k: v
-            for k, v in prior.items()
-            if k not in {'obs_prev', 'obs_inc'}
-        }),
-        prior_predictive=_to_arviz_dict({
-            k: v
-            for k, v in prior.items()
-            if k in {'obs_prev', 'obs_inc'}
-        }),
-        observed_data={
-            'obs_prev': model_args['prev'],
-            'obs_inc': model_args['inc']
-        },
-    ).to_netcdf('prior_test.netcdf')
-    raise Exception('stop')
 
     # initialise SVI
     if block_stochastic:

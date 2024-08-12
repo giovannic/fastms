@@ -377,7 +377,7 @@ def run(args):
                 n_sites=sites.n_sites,
                 n_prev=sites.n_prev,
                 prev_index=sites.prev_index,
-                inc_risk_time=sites.inc_risk_time,
+                inc_pop=sites.inc_pop,
                 inc_index=sites.inc_index
             )
             sites.prev = truth['obs_prev'][0]
